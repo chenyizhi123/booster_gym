@@ -34,7 +34,7 @@ if __name__ == "__main__":
     if not cfg["basic"]["checkpoint"] or (cfg["basic"]["checkpoint"] == "-1") or (cfg["basic"]["checkpoint"] == -1):
         cfg["basic"]["checkpoint"] = sorted(glob.glob(os.path.join("logs", "**/*.pth"), recursive=True), key=os.path.getmtime)[-1]
     print("Loading model from {}".format(cfg["basic"]["checkpoint"]))
-    model_dict = torch.load(cfg["basic"]["checkpoint"], map_location="cpu", weights_only=True)
+    model_dict = torch.load(cfg["basic"]["checkpoint"], map_location="cpu")
     model.load_state_dict(model_dict["model"])
 
     mj_model = mujoco.MjModel.from_xml_path(cfg["asset"]["mujoco_file"])

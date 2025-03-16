@@ -85,7 +85,7 @@ class Runner:
         if (self.cfg["basic"]["checkpoint"] == "-1") or (self.cfg["basic"]["checkpoint"] == -1):
             self.cfg["basic"]["checkpoint"] = sorted(glob.glob(os.path.join("logs", "**/*.pth"), recursive=True), key=os.path.getmtime)[-1]
         print("Loading model from {}".format(self.cfg["basic"]["checkpoint"]))
-        model_dict = torch.load(self.cfg["basic"]["checkpoint"], map_location=self.device, weights_only=True)
+        model_dict = torch.load(self.cfg["basic"]["checkpoint"], map_location=self.device)
         self.model.load_state_dict(model_dict["model"], strict=False)
         try:
             self.env.curriculum_prob = model_dict["curriculum"]

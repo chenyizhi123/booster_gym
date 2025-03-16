@@ -1,0 +1,16 @@
+{"time":"2025-03-11T10:10:05.778954523Z","level":"INFO","msg":"stream: starting","core version":"0.19.8","symlink path":"logs/2025-03-11-10-10-03/wandb/run-20250311_101005-yl0equat/logs/debug-core.log"}
+{"time":"2025-03-11T10:10:05.894906915Z","level":"INFO","msg":"created new stream","id":"yl0equat"}
+{"time":"2025-03-11T10:10:05.894989899Z","level":"INFO","msg":"stream: started","id":"yl0equat"}
+{"time":"2025-03-11T10:10:05.895012901Z","level":"INFO","msg":"writer: Do: started","stream_id":"yl0equat"}
+{"time":"2025-03-11T10:10:05.895038156Z","level":"INFO","msg":"sender: started","stream_id":"yl0equat"}
+{"time":"2025-03-11T10:10:05.895117247Z","level":"INFO","msg":"handler: started","stream_id":"yl0equat"}
+{"time":"2025-03-11T10:10:06.810928597Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-03-11T13:55:33.174070637Z","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/files/1839132568-/T1/yl0equat/file_stream\": dial tcp: lookup api.wandb.ai on 100.100.100.100:53: read udp 100.67.99.89:55422->100.100.100.100:53: i/o timeout"}
+{"time":"2025-03-12T07:54:58.950278377Z","level":"INFO","msg":"stream: closing","id":"yl0equat"}
+{"time":"2025-03-12T07:54:58.950354206Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-03-12T07:54:58.951317122Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-03-12T07:55:01.164454359Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-03-12T07:55:02.040716518Z","level":"INFO","msg":"handler: closed","stream_id":"yl0equat"}
+{"time":"2025-03-12T07:55:02.040806225Z","level":"INFO","msg":"sender: closed","stream_id":"yl0equat"}
+{"time":"2025-03-12T07:55:02.040796909Z","level":"INFO","msg":"writer: Close: closed","stream_id":"yl0equat"}
+{"time":"2025-03-12T07:55:02.040925842Z","level":"INFO","msg":"stream: closed","id":"yl0equat"}

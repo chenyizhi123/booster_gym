@@ -1,0 +1,16 @@
+{"time":"2025-03-11T03:35:41.577377342Z","level":"INFO","msg":"stream: starting","core version":"0.19.8","symlink path":"logs/2025-03-11-03-35-39/wandb/run-20250311_033541-jop3dynh/logs/debug-core.log"}
+{"time":"2025-03-11T03:35:42.087972002Z","level":"INFO","msg":"created new stream","id":"jop3dynh"}
+{"time":"2025-03-11T03:35:42.088020932Z","level":"INFO","msg":"stream: started","id":"jop3dynh"}
+{"time":"2025-03-11T03:35:42.088072064Z","level":"INFO","msg":"handler: started","stream_id":"jop3dynh"}
+{"time":"2025-03-11T03:35:42.08807582Z","level":"INFO","msg":"writer: Do: started","stream_id":"jop3dynh"}
+{"time":"2025-03-11T03:35:42.089031451Z","level":"INFO","msg":"sender: started","stream_id":"jop3dynh"}
+{"time":"2025-03-11T03:35:43.03166506Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-03-11T04:55:21.08501042Z","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/files/1839132568-/T1/jop3dynh/file_stream\": read tcp 192.168.3.11:58280->35.186.228.49:443: read: connection reset by peer"}
+{"time":"2025-03-11T05:27:27.861906322Z","level":"INFO","msg":"stream: closing","id":"jop3dynh"}
+{"time":"2025-03-11T05:27:27.861956885Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-03-11T05:27:27.862944615Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-03-11T05:27:29.631538628Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-03-11T05:27:30.457365355Z","level":"INFO","msg":"handler: closed","stream_id":"jop3dynh"}
+{"time":"2025-03-11T05:27:30.457418446Z","level":"INFO","msg":"writer: Close: closed","stream_id":"jop3dynh"}
+{"time":"2025-03-11T05:27:30.457444341Z","level":"INFO","msg":"sender: closed","stream_id":"jop3dynh"}
+{"time":"2025-03-11T05:27:30.457496533Z","level":"INFO","msg":"stream: closed","id":"jop3dynh"}
