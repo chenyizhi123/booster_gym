@@ -612,6 +612,7 @@ L -->
   </joint>
 
   <!-- Right Penalty Area Lines yes -->
+  <!-- chenyizhi write -->
   <link name="right_penalty_area_front_line">
     <visual>
       <origin xyz="0 0 0.001" rpy="0 0 0"/>
