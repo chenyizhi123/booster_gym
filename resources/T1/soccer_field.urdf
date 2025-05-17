@@ -611,7 +611,7 @@ L -->
     <origin xyz="5.5 -1.475 0.026" rpy="0 0 0"/> <!-- Midpoint: x=5.5. y=-1.475 -->
   </joint>
 
-  <!-- Right Penalty Area Lines -->
+  <!-- Right Penalty Area Lines yes -->
   <link name="right_penalty_area_front_line">
     <visual>
       <origin xyz="0 0 0.001" rpy="0 0 0"/>
