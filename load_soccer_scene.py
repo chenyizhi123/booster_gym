@@ -55,7 +55,7 @@ def main():
     asset_root = "resources/T1/"
     
     # 1. 加载足球场
-    field_file = "T1_soccer_realistic.urdf"
+    field_file = "soccer_field.urdf"
     field_asset_options = gymapi.AssetOptions()
     field_asset_options.fix_base_link = True
     field_asset = gym.load_asset(sim, asset_root, field_file, field_asset_options)

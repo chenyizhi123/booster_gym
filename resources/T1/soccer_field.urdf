@@ -1,0 +1,660 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="soccer_field">
+  <!-- �:hb -->
+  <link name="field_plane">
+    <inertial>
+      <mass value="1000"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="100.0" ixy="0.0" ixz="0.0" iyy="100.0" iyz="0.0" izz="100.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12.0 8.0 0.05"/>
+      </geometry>
+      <material name="green">
+        <color rgba="0.0 0.5 0.1 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12.0 8.0 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- �:槹L -->
+  <link name="left_boundary">
+    <inertial>
+      <mass value="100"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="10.0" ixy="0.0" ixz="0.0" iyy="10.0" iyz="0.0" izz="10.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 8.0 0.3"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 8.0 0.3"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_boundary_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_boundary"/>
+    <origin xyz="-6.05 0 0.175" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �:�L -->
+  <link name="right_boundary">
+    <inertial>
+      <mass value="100"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="10.0" ixy="0.0" ixz="0.0" iyy="10.0" iyz="0.0" izz="10.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 8.0 0.3"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 8.0 0.3"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_boundary_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_boundary"/>
+    <origin xyz="6.05 0 0.175" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �:
+��L -->
+  <link name="top_boundary">
+    <inertial>
+      <mass value="100"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="10.0" ixy="0.0" ixz="0.0" iyy="10.0" iyz="0.0" izz="10.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12.0 0.1 0.3"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12.0 0.1 0.3"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="top_boundary_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="top_boundary"/>
+    <origin xyz="0 4.05 0.175" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �:��L -->
+  <link name="bottom_boundary">
+    <inertial>
+      <mass value="100"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="10.0" ixy="0.0" ixz="0.0" iyy="10.0" iyz="0.0" izz="10.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12.0 0.1 0.3"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12.0 0.1 0.3"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="bottom_boundary_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="bottom_boundary"/>
+    <origin xyz="0 -4.05 0.175" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �� -->
+  <link name="left_goal_back">
+    <inertial>
+      <mass value="50"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="5.0" ixy="0.0" ixz="0.0" iyy="5.0" iyz="0.0" izz="5.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.5 1.0"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.5 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_goal_back_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_goal_back"/>
+    <origin xyz="-6.05 0 0.525" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_goal_top">
+    <inertial>
+      <mass value="20"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="2.0" ixy="0.0" ixz="0.0" iyy="2.0" iyz="0.0" izz="2.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 2.5 0.1"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 2.5 0.1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_goal_top_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_goal_top"/>
+    <origin xyz="-5.7 0 1.025" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_goal_left">
+    <inertial>
+      <mass value="20"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="2.0" ixy="0.0" ixz="0.0" iyy="2.0" iyz="0.0" izz="2.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_goal_left_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_goal_left"/>
+    <origin xyz="-5.7 1.25 0.525" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_goal_right">
+    <inertial>
+      <mass value="20"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="2.0" ixy="0.0" ixz="0.0" iyy="2.0" iyz="0.0" izz="2.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_goal_right_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_goal_right"/>
+    <origin xyz="-5.7 -1.25 0.525" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �� -->
+  <link name="right_goal_back">
+    <inertial>
+      <mass value="50"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="5.0" ixy="0.0" ixz="0.0" iyy="5.0" iyz="0.0" izz="5.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.5 1.0"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.5 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_goal_back_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_goal_back"/>
+    <origin xyz="6.05 0 0.525" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_goal_top">
+    <inertial>
+      <mass value="20"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="2.0" ixy="0.0" ixz="0.0" iyy="2.0" iyz="0.0" izz="2.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 2.5 0.1"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 2.5 0.1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_goal_top_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_goal_top"/>
+    <origin xyz="5.7 0 1.025" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_goal_left">
+    <inertial>
+      <mass value="20"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="2.0" ixy="0.0" ixz="0.0" iyy="2.0" iyz="0.0" izz="2.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_goal_left_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_goal_left"/>
+    <origin xyz="5.7 1.25 0.525" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_goal_right">
+    <inertial>
+      <mass value="20"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="2.0" ixy="0.0" ixz="0.0" iyy="2.0" iyz="0.0" izz="2.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.7 0.1 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_goal_right_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_goal_right"/>
+    <origin xyz="5.7 -1.25 0.525" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �:�� -->
+  <!-- -� -->
+  <link name="center_line">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 8.0 0.001"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="center_line_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="center_line"/>
+    <origin xyz="0 0 0.025" rpy="0 0 0"/>
+  </joint>
+
+  <!-- -. -->
+  <link name="center_circle">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="1.5" length="0.001"/>
+      </geometry>
+      <material name="white_line">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="center_circle_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="center_circle"/>
+    <origin xyz="0 0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <!-- -� -->
+  <link name="center_spot">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.1" length="0.002"/>
+      </geometry>
+      <material name="white_spot">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="center_spot_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="center_spot"/>
+    <origin xyz="0 0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 槁: -->
+  <link name="left_penalty_box_line_1">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="3.0 0.05 0.001"/>
+      </geometry>
+      <material name="white_line">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="left_penalty_box_line_1_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_penalty_box_line_1"/>
+    <origin xyz="-4.5 0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_penalty_box_line_2">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 3.0 0.001"/>
+      </geometry>
+      <material name="white_line">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="left_penalty_box_line_2_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_penalty_box_line_2"/>
+    <origin xyz="-4.5 1.5 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_penalty_box_line_3">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 3.0 0.001"/>
+      </geometry>
+      <material name="white_line">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="left_penalty_box_line_3_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_penalty_box_line_3"/>
+    <origin xyz="-4.5 -1.5 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �Z� -->
+  <link name="left_penalty_spot">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.1" length="0.002"/>
+      </geometry>
+      <material name="white_spot">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="left_penalty_spot_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="left_penalty_spot"/>
+    <origin xyz="-4.0 0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �: -->
+  <link name="right_penalty_box_line_1">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="3.0 0.05 0.001"/>
+      </geometry>
+      <material name="white_line">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="right_penalty_box_line_1_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_penalty_box_line_1"/>
+    <origin xyz="4.5 0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_penalty_box_line_2">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 3.0 0.001"/>
+      </geometry>
+      <material name="white_line">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="right_penalty_box_line_2_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_penalty_box_line_2"/>
+    <origin xyz="4.5 1.5 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_penalty_box_line_3">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 3.0 0.001"/>
+      </geometry>
+      <material name="white_line">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="right_penalty_box_line_3_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_penalty_box_line_3"/>
+    <origin xyz="4.5 -1.5 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �Z� -->
+  <link name="right_penalty_spot">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.1" length="0.002"/>
+      </geometry>
+      <material name="white_spot">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="right_penalty_spot_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="right_penalty_spot"/>
+    <origin xyz="4.0 0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <!-- �:�� -->
+  <link name="corner_1">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.002"/>
+      </geometry>
+      <material name="white_spot">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="corner_1_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="corner_1"/>
+    <origin xyz="-6.0 4.0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <link name="corner_2">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.002"/>
+      </geometry>
+      <material name="white_spot">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="corner_2_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="corner_2"/>
+    <origin xyz="-6.0 -4.0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <link name="corner_3">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.002"/>
+      </geometry>
+      <material name="white_spot">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="corner_3_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="corner_3"/>
+    <origin xyz="6.0 4.0 0.026" rpy="0 0 0"/>
+  </joint>
+
+  <link name="corner_4">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.002"/>
+      </geometry>
+      <material name="white_spot">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="corner_4_joint" type="fixed">
+    <parent link="field_plane"/>
+    <child link="corner_4"/>
+    <origin xyz="6.0 -4.0 0.026" rpy="0 0 0"/>
+  </joint>
+</robot> 
