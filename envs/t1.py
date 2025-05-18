@@ -25,6 +25,7 @@ class T1(BaseTask):
 
     def __init__(self, cfg):
         super().__init__(cfg)
+        self.ball_pose = None  # 初始化足球姿态变量
         self._create_envs()
         self.gym.prepare_sim(self.sim)
         self._init_buffers()
@@ -57,18 +58,23 @@ class T1(BaseTask):
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
 
         # 加载足球场URDF
-        soccer_field_options = gymapi.AssetOptions()
-        soccer_field_options.fix_base_link = True
-        soccer_field_options.disable_gravity = True
-        soccer_field_asset = self.gym.load_asset(self.sim, os.path.join(asset_root, "T1"), "soccer_field.urdf", soccer_field_options)
-        
+        if self.cfg["env"].get("enable_soccer_field", False):
+            soccer_field_options = gymapi.AssetOptions()
+            soccer_field_options.fix_base_link = True
+            soccer_field_options.disable_gravity = True
+            soccer_field_asset = self.gym.load_asset(self.sim, os.path.join(asset_root, "T1"), "soccer_field.urdf", soccer_field_options)
+        else:
+            soccer_field_asset = None
         # 加载足球URDF
-        soccer_ball_options = gymapi.AssetOptions()
-        soccer_ball_options.density = 100  # 控制球的密度
-        soccer_ball_options.restitution = 0.8  # 控制球的弹性
-        soccer_ball_options.angular_damping = 0.2
-        soccer_ball_options.linear_damping = 0.2
-        soccer_ball_asset = self.gym.load_asset(self.sim, os.path.join(asset_root, "T1"), "soccer_ball.urdf", soccer_ball_options)
+        if self.cfg["env"].get("enable_soccer_ball", False):
+            soccer_ball_options = gymapi.AssetOptions()
+            soccer_ball_options.density = 100  # 控制球的密度
+            soccer_ball_options.restitution = 0.8  # 控制球的弹性
+            soccer_ball_options.angular_damping = 0.2
+            soccer_ball_options.linear_damping = 0.2
+            soccer_ball_asset = self.gym.load_asset(self.sim, os.path.join(asset_root, "T1"), "soccer_ball.urdf", soccer_ball_options)
+        else:
+            soccer_ball_asset = None
         
         dof_props_asset = self.gym.get_asset_dof_properties(robot_asset)
         self.dof_pos_limits = torch.zeros(self.num_dofs, 2, dtype=torch.float, device=self.device)
@@ -151,22 +157,52 @@ class T1(BaseTask):
             self.gym.enable_actor_dof_force_sensors(env_handle, actor_handle)
             
             # 创建足球场
-            field_pose = gymapi.Transform()
-            field_pose.p = gymapi.Vec3(*pos)
-            field_pose.p.z = -0.025  # 调整足球场的位置，使其在地面上
-            field_handle = self.gym.create_actor(env_handle, soccer_field_asset, field_pose, "soccer_field", i, 0, 1)
+            if soccer_field_asset is not None:
+                field_pose = gymapi.Transform()
+                field_pose.p = gymapi.Vec3(*pos)
+                field_pose.p.z = -0.025  # 调整足球场的位置，使其在地面上
+                field_handle = self.gym.create_actor(env_handle, soccer_field_asset, field_pose, "soccer_field", i, 0, 1)
+                self.field_handles.append(field_handle)
+            else:
+                self.field_handles.append(None)
             
             # 创建足球
-            ball_pose = gymapi.Transform()
-            ball_pose.p = gymapi.Vec3(*pos)
-            ball_pose.p.x += 1.0  # 将球放在机器人前方1米处
-            ball_pose.p.z = 0.11  # 球半径
-            ball_handle = self.gym.create_actor(env_handle, soccer_ball_asset, ball_pose, "soccer_ball", i, 0, 2)
+            ball_handle = None
+            if soccer_ball_asset is not None:
+                ball_pose = gymapi.Transform()  # 为每个环境创建新的球姿态
+                ball_pose.p = gymapi.Vec3(*pos)  # 初始位置与环境原点相同
+                
+                ball_position_mode = self.cfg["env"].get("ball_position_mode")
+
+                if ball_position_mode == "random" and self.cfg["env"].get("ball_position_range") is not None:
+                    # 随机位置逻辑
+                    pos_range = self.cfg["env"]["ball_position_range"]
+                    rand_x = np.random.uniform(pos_range[0][0], pos_range[0][1])
+                    rand_y = np.random.uniform(pos_range[1][0], pos_range[1][1])
+                    rand_z = np.random.uniform(pos_range[2][0], pos_range[2][1])
+                    
+                    ball_pose.p.x += rand_x
+                    ball_pose.p.y += rand_y
+                    ball_pose.p.z = rand_z
+                elif self.cfg["env"].get("ball_initial_position") is not None:
+                    # 固定位置逻辑
+                    ball_init_pos = self.cfg["env"]["ball_initial_position"]
+                    ball_pose.p.x += ball_init_pos[0]
+                    ball_pose.p.y += ball_init_pos[1]
+                    ball_pose.p.z = ball_init_pos[2]
+                else:
+                    # 默认位置
+                    ball_pose.p.x += 1.0
+                    ball_pose.p.z = 0.11
+                
+                ball_handle = self.gym.create_actor(env_handle, soccer_ball_asset, ball_pose, "soccer_ball", i, 0, 2)
             
             self.envs.append(env_handle)
             self.actor_handles.append(actor_handle)
-            self.field_handles.append(field_handle)
             self.ball_handles.append(ball_handle)
+        
+        # 在创建完所有环境后更新has_ball标志
+        self.has_ball = hasattr(self, 'ball_handles') and len(self.ball_handles) > 0 and any(handle is not None for handle in self.ball_handles)
 
     def _process_rigid_body_props(self, props, i):
         for j in range(self.num_bodies):
@@ -217,10 +253,46 @@ class T1(BaseTask):
             self.env_origins[:, 2] = self.terrain.terrain_heights(self.env_origins)
 
     def _init_buffers(self):
+        self.num_envs = self.cfg["env"]["num_envs"]
         self.num_obs = self.cfg["env"]["num_observations"]
         self.num_privileged_obs = self.cfg["env"]["num_privileged_obs"]
         self.num_actions = self.cfg["env"]["num_actions"]
         self.dt = self.cfg["control"]["decimation"] * self.cfg["sim"]["dt"]
+
+        # 初始化足球状态相关的变量
+        self.ball_local_pos = None
+        self.ball_local_vel = None
+        
+        # 检查是否有足球
+        # 注意：此时ball_handles可能尚未创建，需要在_create_envs之后重新检查
+        self.has_ball = False  
+    
+        if self.has_ball:
+            # 足球相关缓冲区
+            self.ball_pos = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+            self.ball_rot = torch.zeros((self.num_envs, 4), dtype=torch.float, device=self.device)
+            self.ball_vel = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+            self.ball_ang_vel = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+            
+            # 添加球门相关缓冲区
+            # 右侧球门中心位置（根据URDF文件）
+            self.right_goal_pos = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+            # 左侧球门中心位置（根据URDF文件）
+            self.left_goal_pos = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+            # 目标球门中心相对于机器人的方向向量
+            self.goal_dir_relative = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+            # 机器人前进方向与球门方向的夹角
+            self.ball_to_goal_angle = torch.zeros((self.num_envs, 1), dtype=torch.float, device=self.device)
+            # 球到目标球门中心的向量
+            self.ball_to_goal_vec = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+            
+            # 如果有足球，确保观察维度正确
+            # 注意：原本47维基础 + 可获取的观测(相对位置3维+相对速度3维+相对方向3维+夹角1维+球到目标3维) = 60维
+            # 特权信息：原本14维 + 难以获取的观测(世界坐标球位置3维+球速度3维) = 20维
+            if self.num_obs < 60:
+                print(f"警告：观察空间维度可能不足，当前为{self.num_obs}，添加可获取的观测需要至少60维")
+            if self.num_privileged_obs < 20:
+                print(f"警告：特权观察空间维度可能不足，当前为{self.num_privileged_obs}，添加特权信息需要至少20维")
 
         self.obs_buf = torch.zeros(self.num_envs, self.num_obs, dtype=torch.float, device=self.device)
         self.privileged_obs_buf = torch.zeros(self.num_envs, self.num_privileged_obs, dtype=torch.float, device=self.device)
@@ -337,6 +409,65 @@ class T1(BaseTask):
         self._update_curriculum(env_ids)
         self._reset_dofs(env_ids)
         self._reset_root_states(env_ids)
+        
+        # 重置足球位置
+        if self.has_ball and env_ids.shape[0] > 0:
+            # 准备足球状态重置
+            ball_states = torch.zeros((len(env_ids), 13), device=self.device)
+            
+            # 对于每个需要重置的环境，设置足球位置
+            for i, env_id in enumerate(env_ids):
+                if self.ball_handles[env_id] is not None:
+                    # 获取环境原点
+                    env_origin = self.env_origins[env_id].clone()
+                    
+                    # 设置位置
+                    ball_states[i, 0:3] = env_origin.clone()  # 先设置为环境原点
+                    
+                    # 根据配置模式调整位置
+                    ball_position_mode = self.cfg["env"].get("ball_position_mode")
+                    
+                    if ball_position_mode == "random" and self.cfg["env"].get("ball_position_range") is not None:
+                        # 随机位置逻辑
+                        pos_range = self.cfg["env"]["ball_position_range"]
+                        rand_x = np.random.uniform(pos_range[0][0], pos_range[0][1])
+                        rand_y = np.random.uniform(pos_range[1][0], pos_range[1][1])
+                        rand_z = np.random.uniform(pos_range[2][0], pos_range[2][1])
+                        
+                        ball_states[i, 0] += rand_x
+                        ball_states[i, 1] += rand_y
+                        ball_states[i, 2] = rand_z
+                    elif self.cfg["env"].get("ball_initial_position") is not None:
+                        # 固定位置逻辑
+                        ball_init_pos = self.cfg["env"]["ball_initial_position"]
+                        ball_states[i, 0] += ball_init_pos[0]
+                        ball_states[i, 1] += ball_init_pos[1]
+                        ball_states[i, 2] = ball_init_pos[2]
+                    else:
+                        # 默认位置
+                        ball_states[i, 0] += 1.0
+                        ball_states[i, 2] = 0.11
+                    
+                    # 重置旋转为默认值（无旋转）
+                    ball_states[i, 3:7] = torch.tensor([0, 0, 0, 1], device=self.device)
+                    
+                    # 重置速度为0
+                    ball_states[i, 7:13] = 0
+            
+            # 将球的状态应用到模拟中
+            env_ids_int32 = env_ids.to(dtype=torch.int32)
+            
+            # 为每个环境ID获取对应的球句柄
+            ball_indices = torch.zeros(len(env_ids), dtype=torch.int32, device=self.device)
+            for i, env_id in enumerate(env_ids):
+                if self.ball_handles[env_id] is not None:
+                    # 确保只重置有效的球
+                    self.gym.set_actor_root_state_tensor_indexed(
+                        self.sim,
+                        gymtorch.unwrap_tensor(ball_states[i:i+1]),
+                        gymtorch.unwrap_tensor(torch.tensor([env_id], device=self.device, dtype=torch.int32)),
+                        1
+                    )
 
         self.last_dof_targets[env_ids] = self.dof_pos[env_ids]
         self.last_root_vel[env_ids] = self.root_states[env_ids, 7:13]
@@ -585,6 +716,47 @@ class T1(BaseTask):
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1.0, dim=1)
         self.reset_buf |= self.root_states[:, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
         self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
+        
+        # 足球相关终止条件
+        if self.has_ball:
+            # 进球终止条件
+            goal_x = 6.05  # 右球门x坐标
+            goal_y_range = 1.25  # 球门宽度的一半
+            goal_z_range = (0.0, 1.0)  # 球门高度范围
+            
+            # 检查球是否在球门范围内
+            in_x_range = self.ball_pos[:, 0] > goal_x - 0.2
+            in_y_range = torch.abs(self.ball_pos[:, 1]) < goal_y_range
+            in_z_range = (self.ball_pos[:, 2] > goal_z_range[0]) & (self.ball_pos[:, 2] < goal_z_range[1])
+            
+            # 判断球是否进球
+            scored = in_x_range & in_y_range & in_z_range
+            
+            # 球出界终止条件
+            field_x_limit = 6.05  # 场地x轴边界
+            field_y_limit = 4.05  # 场地y轴边界
+            ball_out_of_bounds = (torch.abs(self.ball_pos[:, 0]) > field_x_limit) | (torch.abs(self.ball_pos[:, 1]) > field_y_limit)
+            
+            # 更新reset_buf和统计信息
+            self.reset_buf |= scored | ball_out_of_bounds
+            
+            # 记录成功进球的次数（用于计算成功率）
+            if not hasattr(self, 'goal_success_counter'):
+                self.goal_success_counter = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+                self.total_episodes_counter = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+            
+            # 对于当前帧需要重置的环境，更新计数器
+            need_reset = self.reset_buf.clone()
+            self.goal_success_counter += (scored & need_reset).long()
+            self.total_episodes_counter += need_reset.long()
+            
+            # 计算成功率并保存到extras中
+            success_rate = self.goal_success_counter.float() / torch.clamp(self.total_episodes_counter.float(), min=1.0)
+            if 'metrics' not in self.extras:
+                self.extras['metrics'] = {}
+            self.extras['metrics']['success_rate'] = success_rate.mean().item()
+        
+        # 原有的超时条件
         self.time_out_buf = self.episode_length_buf > np.ceil(self.cfg["rewards"]["episode_length_s"] / self.dt)
         self.reset_buf |= self.time_out_buf
         self.time_out_buf |= self.episode_length_buf == self.cmd_resample_time
@@ -609,7 +781,9 @@ class T1(BaseTask):
             [self.cfg["normalization"]["lin_vel"], self.cfg["normalization"]["lin_vel"], self.cfg["normalization"]["ang_vel"]],
             device=self.device,
         )
-        self.obs_buf = torch.cat(
+        
+        # 基础观察（适用于所有情况）
+        base_obs = torch.cat(
             (
                 apply_randomization(self.projected_gravity, self.cfg["noise"].get("gravity")) * self.cfg["normalization"]["gravity"],
                 apply_randomization(self.base_ang_vel, self.cfg["noise"].get("ang_vel")) * self.cfg["normalization"]["ang_vel"],
@@ -622,7 +796,9 @@ class T1(BaseTask):
             ),
             dim=-1,
         )
-        self.privileged_obs_buf = torch.cat(
+        
+        # 准备特权观察（基础部分）
+        privileged_base_obs = torch.cat(
             (
                 self.base_mass_scaled,
                 apply_randomization(self.base_lin_vel, self.cfg["noise"].get("lin_vel")) * self.cfg["normalization"]["lin_vel"],
@@ -632,6 +808,98 @@ class T1(BaseTask):
             ),
             dim=-1,
         )
+        
+        # 如果有足球，添加足球相关的观察
+        if self.has_ball:
+            # 更新足球状态
+            for i in range(self.num_envs):
+                if self.ball_handles[i] is not None:
+                    ball_state = self.gym.get_actor_rigid_body_states(self.envs[i], self.ball_handles[i], gymapi.STATE_ALL)
+                    self.ball_pos[i, 0] = ball_state['pose']['p'][0][0]
+                    self.ball_pos[i, 1] = ball_state['pose']['p'][0][1]
+                    self.ball_pos[i, 2] = ball_state['pose']['p'][0][2]
+                    self.ball_rot[i, 0] = ball_state['pose']['r'][0][0]
+                    self.ball_rot[i, 1] = ball_state['pose']['r'][0][1]
+                    self.ball_rot[i, 2] = ball_state['pose']['r'][0][2]
+                    self.ball_rot[i, 3] = ball_state['pose']['r'][0][3]
+                    self.ball_vel[i, 0] = ball_state['vel']['linear'][0][0]
+                    self.ball_vel[i, 1] = ball_state['vel']['linear'][0][1]
+                    self.ball_vel[i, 2] = ball_state['vel']['linear'][0][2]
+                    self.ball_ang_vel[i, 0] = ball_state['vel']['angular'][0][0]
+                    self.ball_ang_vel[i, 1] = ball_state['vel']['angular'][0][1]
+                    self.ball_ang_vel[i, 2] = ball_state['vel']['angular'][0][2]
+                    
+                    # 设定球门位置 - 根据URDF文件的实际位置
+                    # 右侧球门中心位置（x轴正方向）
+                    self.right_goal_pos[i, 0] = 6.05  # 场地边界x=6.05, 球门后墙x=6.05，球门中心大约x=5.7
+                    self.right_goal_pos[i, 1] = 0.0  # 球场中央
+                    self.right_goal_pos[i, 2] = 0.3  # 球门高度中点大约0.3
+                    
+                    # 左侧球门中心位置（x轴负方向）
+                    self.left_goal_pos[i, 0] = -6.0  # 场地边界x=-6.05, 球门中心大约x=-5.7
+                    self.left_goal_pos[i, 1] = 0.0
+                    self.left_goal_pos[i, 2] = 0.3
+            
+            # 计算足球相对于机器人的位置和速度
+            ball_relative_pos = self.ball_pos - self.base_pos
+            # 将相对位置转换到机器人本地坐标系
+            ball_local_pos = quat_rotate_inverse(self.base_quat, ball_relative_pos)
+            self.ball_local_pos = ball_local_pos  # 保存为类变量
+            # 计算足球相对于机器人的速度
+            ball_relative_vel = self.ball_vel - self.root_states[:, 7:10]
+            # 将相对速度转换到机器人本地坐标系
+            ball_local_vel = quat_rotate_inverse(self.base_quat, ball_relative_vel)
+            self.ball_local_vel = ball_local_vel  # 保存为类变量
+            
+            # 使用右侧球门作为默认目标（可以根据需要调整）
+            target_goal_pos = self.right_goal_pos
+            
+            # 计算球门方向相关的观察
+            # 1. 球门中心相对于机器人躯干的3D方向
+            goal_relative_pos = target_goal_pos - self.base_pos
+            self.goal_dir_relative = quat_rotate_inverse(self.base_quat, goal_relative_pos)
+            self.goal_dir_relative = self.goal_dir_relative / (torch.norm(self.goal_dir_relative, dim=1, keepdim=True) + 1e-6)  # 单位向量
+            
+            # 2. 机器人前进方向与球门方向的夹角
+            forward_dir = torch.zeros_like(self.base_pos)
+            forward_dir[:, 0] = 1.0  # 假设机器人的前进方向是局部坐标系的x轴
+            world_forward = quat_rotate(self.base_quat, forward_dir)
+            goal_dir = target_goal_pos - self.base_pos
+            goal_dir = goal_dir / (torch.norm(goal_dir, dim=1, keepdim=True) + 1e-6)
+            # 计算夹角的余弦值，然后转换为角度
+            cos_angle = torch.sum(world_forward * goal_dir, dim=1, keepdim=True)
+            self.ball_to_goal_angle = torch.acos(torch.clamp(cos_angle, -1.0, 1.0))
+            
+            # 3. 球到球门中心的向量
+            self.ball_to_goal_vec = target_goal_pos - self.ball_pos
+            
+            # 将可通过传感器获取的足球和球门信息添加到观察中
+            self.obs_buf = torch.cat(
+                (
+                    base_obs,
+                    ball_local_pos,  # 足球在机器人坐标系下的相对位置（3维）- 可通过机器人视觉系统获取
+                    ball_local_vel,  # 足球在机器人坐标系下的相对速度（3维）- 可通过连续观测估计
+                    self.goal_dir_relative,  # 球门中心相对于机器人躯干的3D方向（3维）- 可通过预设信息获取
+                    self.ball_to_goal_angle, # 机器人前进方向与球门方向的夹角（1维）- 可通过计算获取
+                    self.ball_to_goal_vec,   # 球到球门中心的向量（3维）- 可通过RGB-D相机获取
+                ),
+                dim=-1,
+            )
+            
+            # 将难以在现实环境中获取的信息放入特权观察中
+            self.privileged_obs_buf = torch.cat(
+                (
+                    privileged_base_obs,  # 基础特权信息（14维）
+                    self.ball_pos,        # 足球在世界坐标系下的位置（3维）
+                    self.ball_vel,        # 足球在世界坐标系下的速度（3维）
+                ),
+                dim=-1,
+            )
+        else:
+            # 如果没有足球，使用基础观察
+            self.obs_buf = base_obs
+            self.privileged_obs_buf = privileged_base_obs
+        
         self.extras["privileged_obs"] = self.privileged_obs_buf
 
     # ------------ reward functions----------------
@@ -760,3 +1028,151 @@ class T1(BaseTask):
         left_swing = (torch.abs(self.gait_process - 0.25) < 0.5 * self.cfg["rewards"]["swing_period"]) & (self.gait_frequency > 1.0e-8)
         right_swing = (torch.abs(self.gait_process - 0.75) < 0.5 * self.cfg["rewards"]["swing_period"]) & (self.gait_frequency > 1.0e-8)
         return (left_swing & ~self.feet_contact[:, 0]).float() + (right_swing & ~self.feet_contact[:, 1]).float()
+    def _reward_approach_ball(self):
+    # """靠近球的奖励 - 鼓励机器人接近足球  
+    # 在Phase-2中启用，权重较高"""
+        if not self.has_ball:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        
+        # 计算机器人到球的距离（使用局部坐标系中的位置）
+        dist_to_ball = torch.norm(self.ball_local_pos, dim=1)
+        # 使用高斯函数将距离转换为奖励，距离越近奖励越高
+        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.5)  # 可在yaml中配置
+        # 最大奖励为1.0，随距离增加呈指数衰减
+        return torch.exp(-torch.square(dist_to_ball) / approach_sigma)
+        
+    def _reward_face_ball(self):
+        """面向球的奖励 - 鼓励机器人正面朝向球
+        在Phase-2中启用，与approach_ball配合使用"""
+        if not self.has_ball:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            
+        # 机器人前向方向在局部坐标系中是(1,0,0)
+        # ball_local_pos已经是球在机器人局部坐标系中的位置
+        forward_vec = torch.zeros_like(self.ball_local_pos)
+        forward_vec[:, 0] = 1.0  # x轴正方向是机器人的前向
+        
+        # 计算球的方向向量（需要先归一化）
+        ball_dir = self.ball_local_pos.clone()
+        ball_dist = torch.norm(ball_dir, dim=1, keepdim=True) + 1e-6
+        ball_dir = ball_dir / ball_dist
+        # 计算前向向量与球方向向量的点积(余弦值)
+        # 完全朝向球时为1，垂直时为0，背对时为-1
+        cos_angle = torch.sum(forward_vec * ball_dir, dim=1)
+        
+        # 将余弦值裁剪到[0,1]范围，只奖励正面朝向球
+        return torch.clamp(cos_angle, min=0.0)
+        
+    def _reward_align_goal(self):
+        """球门对准奖励 - 鼓励机器人让球、自己和球门在一条直线上
+        在Phase-3中启用，为踢球做准备"""
+        if not self.has_ball:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            
+        # 计算两个关键向量
+        # 1. 机器人到球的方向（机器人应该面对的方向）
+        robot_to_ball_dir = self.ball_local_pos.clone()
+        robot_to_ball_dist = torch.norm(robot_to_ball_dir, dim=1, keepdim=True) + 1e-6
+        robot_to_ball_dir = robot_to_ball_dir / robot_to_ball_dist
+        
+        # 2. 球到球门的方向（应该踢球的方向）
+        # 我们已经在观测空间中有ball_to_goal_vec
+        ball_to_goal_dir = self.ball_to_goal_vec.clone()
+        ball_to_goal_dist = torch.norm(ball_to_goal_dir, dim=1, keepdim=True) + 1e-6
+        ball_to_goal_dir = ball_to_goal_dir / ball_to_goal_dist
+        
+        # 计算这两个向量的夹角余弦值
+        # 球、机器人、球门完全对齐时，余弦值为1
+        cos_angle = torch.sum(robot_to_ball_dir * ball_to_goal_dir, dim=1)
+        
+        # 我们希望机器人站在球后面，朝向球门
+        # 只有当角度小于90度时（余弦值>0）才给予奖励
+        return torch.clamp(cos_angle, min=0.0)
+        
+    def _reward_kick_velocity(self):
+        """踢球速度奖励 - 鼓励球朝向球门方向移动
+        在Phase-3和Phase-4中启用"""
+        if not self.has_ball:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            
+        # 计算球的速度在球门方向上的投影
+        ball_vel_world = self.ball_vel
+        
+        # 球到球门的方向（单位向量）
+        ball_to_goal_dir = self.ball_to_goal_vec.clone()
+        ball_to_goal_dist = torch.norm(ball_to_goal_dir, dim=1, keepdim=True) + 1e-6
+        ball_to_goal_dir = ball_to_goal_dir / ball_to_goal_dist
+        
+        # 计算球速在球门方向上的投影分量
+        vel_proj = torch.sum(ball_vel_world * ball_to_goal_dir, dim=1)
+        
+        # 只有当球朝向球门移动时才给予奖励（速度投影为正）
+        # 且奖励与速度成正比，但设置上限
+        max_velocity = 5.0  # 可在yaml中配置
+        return torch.clamp(vel_proj, min=0.0, max=max_velocity) / max_velocity
+        
+    def _reward_goal_scored(self):
+        """进球奖励 - 当球进入球门时给予高额奖励
+        在Phase-4中启用，是最终的训练目标"""
+        if not self.has_ball:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            
+        # 定义球门的位置范围
+        goal_x = 6.05  # 右球门x坐标
+        goal_y_range = 1.25  # 球门宽度的一半，从URDF得知
+        goal_z_range = (0.0, 1.0)  # 球门高度范围
+        
+        # 检查球是否在球门范围内
+        in_x_range = self.ball_pos[:, 0] > goal_x - 0.2  # 稍微宽松一点
+        in_y_range = torch.abs(self.ball_pos[:, 1]) < goal_y_range
+        in_z_range = (self.ball_pos[:, 2] > goal_z_range[0]) & (self.ball_pos[:, 2] < goal_z_range[1])
+        
+        # 判断球是否进球
+        scored = in_x_range & in_y_range & in_z_range
+        
+        # 进球给予固定奖励1.0，未进球为0
+        # 注意：实际训练时，可以在T1.yaml中设置很大的系数(如30)
+        return scored.float()
+        
+    def _reward_dribbling(self):
+        """带球奖励 - 鼓励机器人在控制球的同时移动
+        可选奖励，在Phase-4中启用"""
+        if not self.has_ball:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            
+        # 定义控制范围 - 球在机器人前方适当距离内
+        control_dist_min = 0.3
+        control_dist_max = 0.8
+        
+        # 计算球到机器人的距离
+        ball_dist = torch.norm(self.ball_local_pos, dim=1)
+        
+        # 球在控制范围内的mask
+        in_control = (ball_dist > control_dist_min) & (ball_dist < control_dist_max)
+        
+        # 机器人和球都在移动的情况(使用x方向速度作为指标)
+        robot_moving = torch.abs(self.base_lin_vel[:, 0]) > 0.3  # 机器人在移动
+        ball_moving = torch.abs(self.ball_vel[:, 0]) > 0.2  # 球在移动
+        
+        # 带球移动的奖励
+        dribbling = in_control & robot_moving & ball_moving
+        
+        return dribbling.float()
+        
+    def _reward_ball_position_z(self):
+        """球高度惩罚 - 惩罚球过高，鼓励低平射门
+        辅助奖励，根据需要启用"""
+        if not self.has_ball:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            
+        # 理想高度是球半径
+        ball_radius = 0.2  # 从soccer_ball.urdf获得
+        ideal_height = ball_radius
+        
+        # 计算球高度与理想高度的差距，并惩罚
+        height_diff = torch.abs(self.ball_pos[:, 2] - ideal_height)
+        
+        # 转换为[0,1]范围的惩罚，差距越大惩罚越大
+        height_sigma = 0.5  # 可在yaml中配置
+        # 注意：这里返回的是惩罚，T1.yaml中应设为负权重
+        return torch.exp(-torch.square(height_diff) / height_sigma)

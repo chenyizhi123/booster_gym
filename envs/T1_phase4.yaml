@@ -12,8 +12,15 @@ env:
   num_observations: 60
   num_privileged_obs: 20
   num_actions: 12
-  env_spacing: 1.  # not used with plane terrain
-
+  env_spacing: 1.
+  enable_soccer_ball: true    # 启用足球
+  enable_soccer_field: true   # 启用足球场
+  ball_position_mode: "random"  # 固定位置或随机位置
+    # 球的初始位置
+  ball_initial_position: [1.0, 0, 0.11]
+  ball_position_range: [[-2.0, 2.0], [-2.0, 2.0], [0.11, 0.11]]  # x,y,z范围
+    # 目标球门设置
+  target_goal: "right"   # 使用右侧球门作为目标
 runner:
   horizon_length: 24
   mini_epochs: 20
@@ -95,7 +102,7 @@ control:
   decimation: 10
 
 terrain:
-  type: "trimesh" # "plane" or "trimesh"
+  type: "plane" # "plane" or "trimesh"
   static_friction: 1.0  # [-]
   dynamic_friction: 1.0  # [-]
   restitution: 0.        # [-]
@@ -250,37 +257,45 @@ randomization:
 
 rewards:
   scales:
-    # 基础移动与姿态保持的奖励项
-    survival: 0.25
-    tracking_lin_vel_x: 1.0
-    tracking_lin_vel_y: 1.0
-    tracking_ang_vel: 0.5
-    base_height: -20.0
-    orientation: -5.0
-    torques: -2.e-4
-    torque_tiredness: -1.e-2
-    power: -2.e-3
-    lin_vel_z: -2.0
-    ang_vel_xy: -0.2
+    # 基础奖励进一步降低
+    survival: 0.1
+    tracking_lin_vel_x: 0.4
+    tracking_lin_vel_y: 0.4
+    tracking_ang_vel: 0.2
+    base_height: -8.0
+    orientation: -2.0
+    torques: -1.e-4
+    torque_tiredness: -5.e-3
+    power: -1.e-3
+    lin_vel_z: -0.8
+    ang_vel_xy: -0.1
     dof_vel: -1.e-4
     dof_acc: -1.e-7
     root_acc: -1.e-4
-    action_rate: -1.0
-    dof_pos_limits: -1.0
-    collision: -1.0
-    feet_slip: -0.1
-    feet_roll: -0.1
-    feet_distance: -1.0
-    feet_swing: 3.0
+    action_rate: -0.5
+    dof_pos_limits: -0.5
+    collision: -0.5
+    feet_slip: -0.05
+    feet_roll: -0.05
+    feet_distance: -0.5
+    feet_swing: 1.0
     
-    # 足球相关奖励全部设为0
-    approach_ball: 0.0
-    face_ball: 0.0
-    align_goal: 0.0
-    kick_velocity: 0.0
-    goal_scored: 0.0
-    dribbling: 0.0
-    ball_position_z: 0.0
+    # 调整各阶段奖励的权重
+    approach_ball: 0.5
+    face_ball: 0.3
+    align_goal: 0.8
+    kick_velocity: 1.0
+    
+    # 启用进球和带球奖励
+    goal_scored: 30.0     # 进球大奖励
+    dribbling: 0.5        # 带球奖励
+    ball_position_z: -0.2  # 球高度惩罚
+    
+  # 其他参数
+  approach_sigma: 0.5
+  kick_velocity_max: 5.0
+  control_dist_min: 0.3   # 带球控制的最小距离
+  control_dist_max: 0.8   # 带球控制的最大距离
   episode_length_s: 30.
   terminate_height: 0.45
   terminate_vel: 50.
@@ -294,3 +309,20 @@ rewards:
   soft_torque_limit: 1.
   swing_period: 0.2
   feet_distance_ref: 0.2
+  # 其他参数
+  approach_sigma: 0.5
+  kick_velocity_max: 5.0
+  control_dist_min: 0.3   # 带球控制的最小距离
+  control_dist_max: 0.8   # 带球控制的最大距离
+  
+  episode_length_s: 30.
+  terminate_height: 0.45
+  terminate_vel: 50.
+  
+  # 球门定义 (用于检测进球)
+  goal_x: 6.05
+  goal_y_range: 1.25
+  goal_z_range: [0.0, 1.0]
+    # 添加终止条件
+  ball_min_travel_distance: 1.0  # 球移动超过此距离就结束
+  kick_velocity_terminate: 3.0   # 球速超过此值就结束

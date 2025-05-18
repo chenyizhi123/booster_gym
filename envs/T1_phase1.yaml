@@ -12,7 +12,9 @@ env:
   num_observations: 60
   num_privileged_obs: 20
   num_actions: 12
-  env_spacing: 1.  # not used with plane terrain
+  env_spacing: 1.
+  enable_soccer_ball: false   # 阶段一不加载足球
+  enable_soccer_field: false  # 阶段一不加载足球场
 
 runner:
   horizon_length: 24
@@ -294,3 +296,17 @@ rewards:
   soft_torque_limit: 1.
   swing_period: 0.2
   feet_distance_ref: 0.2
+  # 其他参数
+  approach_sigma: 0.5
+  kick_velocity_max: 5.0
+  control_dist_min: 0.3   # 带球控制的最小距离
+  control_dist_max: 0.8   # 带球控制的最大距离
+  
+  episode_length_s: 30.
+  terminate_height: 0.45
+  terminate_vel: 50.
+  
+  # 球门定义 (用于检测进球)
+  goal_x: 6.05
+  goal_y_range: 1.25
+  goal_z_range: [0.0, 1.0]

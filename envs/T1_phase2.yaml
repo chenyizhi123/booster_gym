@@ -12,8 +12,12 @@ env:
   num_observations: 60
   num_privileged_obs: 20
   num_actions: 12
-  env_spacing: 1.  # not used with plane terrain
-
+  env_spacing: 1.
+  enable_soccer_ball: true    # 启用足球
+  enable_soccer_field: false  # 可以不加载足球场
+  ball_position_mode: "fixed"  # 固定位置或随机位置
+  # 球的初始位置设置 (固定位置)
+  ball_initial_position: [1.5, 0, 0.11]  # x,y,z (前方1.5米)
 runner:
   horizon_length: 24
   mini_epochs: 20
@@ -95,7 +99,7 @@ control:
   decimation: 10
 
 terrain:
-  type: "trimesh" # "plane" or "trimesh"
+  type: "plane" # "plane" or "trimesh"
   static_friction: 1.0  # [-]
   dynamic_friction: 1.0  # [-]
   restitution: 0.        # [-]
@@ -250,38 +254,40 @@ randomization:
 
 rewards:
   scales:
-    # 基础移动与姿态保持的奖励项
-    survival: 0.25
-    tracking_lin_vel_x: 1.0
-    tracking_lin_vel_y: 1.0
-    tracking_ang_vel: 0.5
-    base_height: -20.0
-    orientation: -5.0
+    # 降低基础移动奖励权重
+    survival: 0.2
+    tracking_lin_vel_x: 0.8
+    tracking_lin_vel_y: 0.8
+    tracking_ang_vel: 0.4
+    base_height: -15.0
+    orientation: -4.0
     torques: -2.e-4
     torque_tiredness: -1.e-2
     power: -2.e-3
-    lin_vel_z: -2.0
+    lin_vel_z: -1.5
     ang_vel_xy: -0.2
     dof_vel: -1.e-4
     dof_acc: -1.e-7
     root_acc: -1.e-4
-    action_rate: -1.0
+    action_rate: -0.8
     dof_pos_limits: -1.0
     collision: -1.0
     feet_slip: -0.1
     feet_roll: -0.1
     feet_distance: -1.0
-    feet_swing: 3.0
+    feet_swing: 2.5
     
-    # 足球相关奖励全部设为0
-    approach_ball: 0.0
-    face_ball: 0.0
+    # 启用接近球和面向球的奖励
+    approach_ball: 1.0    # 接近球的奖励
+    face_ball: 0.5        # 面向球的奖励
     align_goal: 0.0
     kick_velocity: 0.0
     goal_scored: 0.0
     dribbling: 0.0
     ball_position_z: 0.0
-  episode_length_s: 30.
+  # 新增接近球参数
+  approach_sigma: 0.5    # 接近球奖励的高斯系数
+  episode_length_s: 20.
   terminate_height: 0.45
   terminate_vel: 50.
   terminate_contacts_on: []
@@ -294,3 +300,17 @@ rewards:
   soft_torque_limit: 1.
   swing_period: 0.2
   feet_distance_ref: 0.2
+  # 其他参数
+  approach_sigma: 0.5
+  kick_velocity_max: 5.0
+  control_dist_min: 0.3   # 带球控制的最小距离
+  control_dist_max: 0.8   # 带球控制的最大距离
+  
+  episode_length_s: 30.
+  terminate_height: 0.45
+  terminate_vel: 50.
+  
+  # 球门定义 (用于检测进球)
+  goal_x: 6.05
+  goal_y_range: 1.25
+  goal_z_range: [0.0, 1.0]
