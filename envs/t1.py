@@ -56,20 +56,22 @@ class T1(BaseTask):
         self.num_dofs = self.gym.get_asset_dof_count(robot_asset)
         self.num_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
-
+    
         # 加载足球场URDF
         if self.cfg["env"].get("enable_soccer_field", False):
             soccer_field_options = gymapi.AssetOptions()
             soccer_field_options.fix_base_link = True
             soccer_field_options.disable_gravity = True
-            soccer_field_asset = self.gym.load_asset(self.sim, asset_root, "soccer_field.urdf", soccer_field_options)
+            soccer_field_asset = self.gym.load_asset(self.sim,asset_root, "soccer_field.urdf", soccer_field_options)
         else:
             soccer_field_asset = None
         # 加载足球URDF
         if self.cfg["env"].get("enable_soccer_ball", False):
             soccer_ball_options = gymapi.AssetOptions()
-            soccer_ball_options.angular_damping = 0.1  # 降低角阻尼以允许球更自然地旋转
-            soccer_ball_options.linear_damping = 0.1  # 降低线性阻尼以允许球滚动更远
+            soccer_ball_options.density = 100  # 控制球的密度
+            soccer_ball_options.restitution = 0.8  # 控制球的弹性
+            soccer_ball_options.angular_damping = 0.2
+            soccer_ball_options.linear_damping = 0.2
             soccer_ball_asset = self.gym.load_asset(self.sim,asset_root, "soccer_ball.urdf", soccer_ball_options)
         else:
             soccer_ball_asset = None
@@ -165,7 +167,6 @@ class T1(BaseTask):
                 self.field_handles.append(None)
             
             # 创建足球
-            ball_handle = None
             if soccer_ball_asset is not None:
                 ball_pose = gymapi.Transform()  # 为每个环境创建新的球姿态
                 ball_pose.p = gymapi.Vec3(*pos)  # 初始位置与环境原点相同
@@ -201,7 +202,9 @@ class T1(BaseTask):
         
         # 在创建完所有环境后更新has_ball标志
         self.has_ball = hasattr(self, 'ball_handles') and len(self.ball_handles) > 0 and any(handle is not None for handle in self.ball_handles)
-
+        if self.has_ball:
+            # 足球通常只有一个刚体
+            self.num_bodies += 1
     def _process_rigid_body_props(self, props, i):
         for j in range(self.num_bodies):
             if j == self.base_indice:
@@ -256,15 +259,6 @@ class T1(BaseTask):
         self.num_privileged_obs = self.cfg["env"]["num_privileged_obs"]
         self.num_actions = self.cfg["env"]["num_actions"]
         self.dt = self.cfg["control"]["decimation"] * self.cfg["sim"]["dt"]
-
-        # 初始化足球状态相关的变量
-        self.ball_local_pos = None
-        self.ball_local_vel = None
-        
-        # 检查是否有足球
-        # 注意：此时ball_handles可能尚未创建，需要在_create_envs之后重新检查
-        self.has_ball = False  
-    
         if self.has_ball:
             # 足球相关缓冲区
             self.ball_pos = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
