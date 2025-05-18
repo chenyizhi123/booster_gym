@@ -56,6 +56,20 @@ class T1(BaseTask):
         self.num_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
 
+        # 加载足球场URDF
+        soccer_field_options = gymapi.AssetOptions()
+        soccer_field_options.fix_base_link = True
+        soccer_field_options.disable_gravity = True
+        soccer_field_asset = self.gym.load_asset(self.sim, os.path.join(asset_root, "T1"), "soccer_field.urdf", soccer_field_options)
+        
+        # 加载足球URDF
+        soccer_ball_options = gymapi.AssetOptions()
+        soccer_ball_options.density = 100  # 控制球的密度
+        soccer_ball_options.restitution = 0.8  # 控制球的弹性
+        soccer_ball_options.angular_damping = 0.2
+        soccer_ball_options.linear_damping = 0.2
+        soccer_ball_asset = self.gym.load_asset(self.sim, os.path.join(asset_root, "T1"), "soccer_ball.urdf", soccer_ball_options)
+        
         dof_props_asset = self.gym.get_asset_dof_properties(robot_asset)
         self.dof_pos_limits = torch.zeros(self.num_dofs, 2, dtype=torch.float, device=self.device)
         self.dof_vel_limits = torch.zeros(self.num_dofs, dtype=torch.float, device=self.device)
@@ -119,6 +133,8 @@ class T1(BaseTask):
         env_upper = gymapi.Vec3(0.0, 0.0, 0.0)
         self.envs = []
         self.actor_handles = []
+        self.ball_handles = [] # 存储球的handles
+        self.field_handles = [] # 存储足球场的handles
         self.base_mass_scaled = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device)
         for i in range(self.num_envs):
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
@@ -133,8 +149,24 @@ class T1(BaseTask):
             shape_props = self._process_rigid_shape_props(shape_props)
             self.gym.set_actor_rigid_shape_properties(env_handle, actor_handle, shape_props)
             self.gym.enable_actor_dof_force_sensors(env_handle, actor_handle)
+            
+            # 创建足球场
+            field_pose = gymapi.Transform()
+            field_pose.p = gymapi.Vec3(*pos)
+            field_pose.p.z = -0.025  # 调整足球场的位置，使其在地面上
+            field_handle = self.gym.create_actor(env_handle, soccer_field_asset, field_pose, "soccer_field", i, 0, 1)
+            
+            # 创建足球
+            ball_pose = gymapi.Transform()
+            ball_pose.p = gymapi.Vec3(*pos)
+            ball_pose.p.x += 1.0  # 将球放在机器人前方1米处
+            ball_pose.p.z = 0.11  # 球半径
+            ball_handle = self.gym.create_actor(env_handle, soccer_ball_asset, ball_pose, "soccer_ball", i, 0, 2)
+            
             self.envs.append(env_handle)
             self.actor_handles.append(actor_handle)
+            self.field_handles.append(field_handle)
+            self.ball_handles.append(ball_handle)
 
     def _process_rigid_body_props(self, props, i):
         for j in range(self.num_bodies):
