@@ -68,10 +68,8 @@ class T1(BaseTask):
         # 加载足球URDF
         if self.cfg["env"].get("enable_soccer_ball", False):
             soccer_ball_options = gymapi.AssetOptions()
-            soccer_ball_options.density = 100  # 控制球的密度
-            soccer_ball_options.restitution = 0.8  # 控制球的弹性
-            soccer_ball_options.angular_damping = 0.2
-            soccer_ball_options.linear_damping = 0.2
+            soccer_ball_options.angular_damping = 0.1  # 降低角阻尼以允许球更自然地旋转
+            soccer_ball_options.linear_damping = 0.1  # 降低线性阻尼以允许球滚动更远
             soccer_ball_asset = self.gym.load_asset(self.sim, os.path.join(asset_root, "T1"), "soccer_ball.urdf", soccer_ball_options)
         else:
             soccer_ball_asset = None
@@ -321,7 +319,7 @@ class T1(BaseTask):
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 1]
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
-        self.body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, self.num_bodies, 13)
+        self.body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, self.num_bodies+1, 13)
         self.base_pos = self.root_states[:, 0:3]
         self.base_quat = self.root_states[:, 3:7]
         self.feet_pos = self.body_states[:, self.feet_indices, 0:3]
@@ -341,8 +339,30 @@ class T1(BaseTask):
         self.cmd_resample_time = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.gait_frequency = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.gait_process = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        
+        # 确保base_quat和gravity_vec有相同的批处理维度
+        print(f"检查维度: self.base_quat.shape={self.base_quat.shape}, self.gravity_vec.shape={self.gravity_vec.shape}, self.root_states.shape={self.root_states.shape}")
+        if self.has_ball:
+            # 如果有球，我们需要确保所有张量使用相同数量的批处理维度
+            # 这里的问题是self.root_states可能包含了机器人和足球的状态，所以其形状可能是(2*num_envs, ...)
+            # 我们需要只使用与机器人相关的状态
+            if self.root_states.shape[0] > self.num_envs:
+                print("检测到root_states包含足球状态，进行调整")
+                self.root_states_robots = self.root_states[:self.num_envs].clone()  # 只保留机器人状态
+                self.base_pos = self.root_states_robots[:, 0:3]
+                self.base_quat = self.root_states_robots[:, 3:7]
+                
+                # 使用调整后的张量
+                self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states_robots[:, 7:10])
+                self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states_robots[:, 10:13])
+            else:
+                self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
+                self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        else:
+            # 没有球的情况，使用原始代码
+            self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
+            self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+            
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         self.filtered_lin_vel = self.base_lin_vel.clone()
         self.filtered_ang_vel = self.base_ang_vel.clone()
@@ -623,10 +643,22 @@ class T1(BaseTask):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.base_pos[:] = self.root_states[:, 0:3]
-        self.base_quat[:] = self.root_states[:, 3:7]
-        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        
+        # 处理维度不匹配问题
+        if self.has_ball and self.root_states.shape[0] > self.num_envs:
+            # 仅使用机器人相关的状态
+            self.root_states_robots = self.root_states[:self.num_envs].clone()
+            self.base_pos[:] = self.root_states_robots[:, 0:3]
+            self.base_quat[:] = self.root_states_robots[:, 3:7]
+            self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states_robots[:, 7:10])
+            self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states_robots[:, 10:13])
+        else:
+            # 原有的代码
+            self.base_pos[:] = self.root_states[:, 0:3]
+            self.base_quat[:] = self.root_states[:, 3:7]
+            self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
+            self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+            
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         self.filtered_lin_vel[:] = self.base_lin_vel[:] * self.cfg["normalization"]["filter_weight"] + self.filtered_lin_vel[:] * (
             1.0 - self.cfg["normalization"]["filter_weight"]
