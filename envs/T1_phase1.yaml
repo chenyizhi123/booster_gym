@@ -9,8 +9,8 @@ basic:
 
 env:
   num_envs: 4096
-  num_observations: 60
-  num_privileged_obs: 20
+  num_observations: 47
+  num_privileged_obs: 14
   num_actions: 12
   env_spacing: 1.
   enable_soccer_ball: false   # 阶段一不加载足球

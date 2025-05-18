@@ -51,11 +51,12 @@ class Runner:
         parser.add_argument("--rl_device", type=str, help="Device for the RL algorithm. Overrides config file if provided.")
         parser.add_argument("--seed", type=int, help="Random seed. Overrides config file if provided.")
         parser.add_argument("--max_iterations", type=int, help="Maximum number of training iterations. Overrides config file if provided.")
+        parser.add_argument("--config", required=True, type=str, help="yaml file.")
         self.args = parser.parse_args()
 
     # Override config file with args if needed
     def _update_cfg_from_args(self):
-        cfg_file = os.path.join("envs", "{}.yaml".format(self.args.task))
+        cfg_file = os.path.join("envs", "{}.yaml".format(self.args.config))
         with open(cfg_file, "r", encoding="utf-8") as f:
             self.cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
         for arg in vars(self.args):
