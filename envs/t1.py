@@ -283,7 +283,7 @@ class T1(BaseTask):
             # 特权信息：原本14维 + 难以获取的观测(世界坐标球位置3维+球速度3维) = 20维
             if self.num_obs < 60:
                 print(f"警告：观察空间维度可能不足，当前为{self.num_obs}，添加可获取的观测需要至少60维")
-            if self.num_privileged_obs < 20:
+            if self.num_privileged_obs < 20: 
                 print(f"警告：特权观察空间维度可能不足，当前为{self.num_privileged_obs}，添加特权信息需要至少20维")
 
         self.obs_buf = torch.zeros(self.num_envs, self.num_obs, dtype=torch.float, device=self.device)
@@ -328,7 +328,6 @@ class T1(BaseTask):
         # 计算实际刚体总数，包括足球（如果存在）
         total_bodies_per_env = self.num_bodies
         if self.has_ball:
-            total_bodies_per_env += 1
             print(f"检测到足球对象，每个环境的总刚体数：{total_bodies_per_env} (包含机器人刚体数 {self.num_bodies} + 足球)")
         else:
             print(f"未检测到足球对象，每个环境的总刚体数：{total_bodies_per_env}")
