@@ -1,0 +1,386 @@
+<?xml version="1.0"?>
+<robot name="soccer_field_half">
+  <!-- 机器人足球半场 URDF 描述 -->
+  <!-- 基于 RoboCup MSL 规格，半场尺寸: 9米 x 12米 -->
+  
+  <!-- 基础链接 - 场地中心 -->
+  <link name="field_base">
+    <visual>
+      <origin xyz="6 4.5 -0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 9 0.02"/>
+      </geometry>
+      <material name="green">
+        <color rgba="0.0 0.8 0.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="6 4.5 -0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 9 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 边界线 -->
+  <!-- 中线 -->
+  <link name="midfield_line">
+    <visual>
+      <origin xyz="6 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 0.1 0.01"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 左边线 -->
+  <link name="left_touchline">
+    <visual>
+      <origin xyz="0 4.5 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 9 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 右边线 -->
+  <link name="right_touchline">
+    <visual>
+      <origin xyz="12 4.5 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 9 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 球门线 -->
+  <link name="goal_line">
+    <visual>
+      <origin xyz="6 9 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 球门 -->
+  <!-- 左门柱 -->
+  <link name="left_goal_post">
+    <visual>
+      <origin xyz="4.825 9 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+      <material name="goal_material">
+        <color rgba="0.9 0.9 0.9 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="4.825 9 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 右门柱 -->
+  <link name="right_goal_post">
+    <visual>
+      <origin xyz="7.175 9 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+    <collision>
+      <origin xyz="7.175 9 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 横梁 -->
+  <link name="crossbar">
+    <visual>
+      <origin xyz="6 9 0.8" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="2.35"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+    <collision>
+      <origin xyz="6 9 0.8" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="2.35"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 球门后支撑 (深度0.5米) -->
+  <!-- 左后支撑 -->
+  <link name="left_goal_back">
+    <visual>
+      <origin xyz="4.825 9.25 0.4" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 0.5 0.8"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+  </link>
+
+  <!-- 右后支撑 -->
+  <link name="right_goal_back">
+    <visual>
+      <origin xyz="7.175 9.25 0.4" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 0.5 0.8"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+  </link>
+
+  <!-- 后横梁 -->
+  <link name="back_crossbar">
+    <visual>
+      <origin xyz="6 9.5 0.8" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="2.35"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+  </link>
+
+  <!-- 禁区线 -->
+  <!-- 禁区前边线 -->
+  <link name="penalty_area_front">
+    <visual>
+      <origin xyz="6 6.8 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="6 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 禁区左边线 -->
+  <link name="penalty_area_left">
+    <visual>
+      <origin xyz="3 7.9 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.2 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 禁区右边线 -->
+  <link name="penalty_area_right">
+    <visual>
+      <origin xyz="9 7.9 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.2 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 罚球点 -->
+  <link name="penalty_spot">
+    <visual>
+      <origin xyz="6 6 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 中圈弧 (半圆) -->
+  <!-- 使用多个小段来近似半圆弧 -->
+  <link name="center_circle_arc_1">
+    <visual>
+      <origin xyz="5.5 0.866 0" rpy="0 0 0.5236"/>
+      <geometry>
+        <box size="0.785 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <link name="center_circle_arc_2">
+    <visual>
+      <origin xyz="6 1.5 0" rpy="0 0 1.5708"/>
+      <geometry>
+        <box size="0.785 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <link name="center_circle_arc_3">
+    <visual>
+      <origin xyz="6.5 0.866 0" rpy="0 0 2.618"/>
+      <geometry>
+        <box size="0.785 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 角球弧 -->
+  <!-- 左角球弧 -->
+  <link name="left_corner_arc_1">
+    <visual>
+      <origin xyz="0.25 8.567 0" rpy="0 0 -0.5236"/>
+      <geometry>
+        <box size="0.262 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <link name="left_corner_arc_2">
+    <visual>
+      <origin xyz="0.433 8.75 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.262 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 右角球弧 -->
+  <link name="right_corner_arc_1">
+    <visual>
+      <origin xyz="11.75 8.567 0" rpy="0 0 0.5236"/>
+      <geometry>
+        <box size="0.262 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <link name="right_corner_arc_2">
+    <visual>
+      <origin xyz="11.567 8.75 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.262 0.1 0.01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 固定关节连接所有部件到基础 -->
+  <joint name="field_to_midfield_line" type="fixed">
+    <parent link="field_base"/>
+    <child link="midfield_line"/>
+  </joint>
+
+  <joint name="field_to_left_touchline" type="fixed">
+    <parent link="field_base"/>
+    <child link="left_touchline"/>
+  </joint>
+
+  <joint name="field_to_right_touchline" type="fixed">
+    <parent link="field_base"/>
+    <child link="right_touchline"/>
+  </joint>
+
+  <joint name="field_to_goal_line" type="fixed">
+    <parent link="field_base"/>
+    <child link="goal_line"/>
+  </joint>
+
+  <joint name="field_to_left_goal_post" type="fixed">
+    <parent link="field_base"/>
+    <child link="left_goal_post"/>
+  </joint>
+
+  <joint name="field_to_right_goal_post" type="fixed">
+    <parent link="field_base"/>
+    <child link="right_goal_post"/>
+  </joint>
+
+  <joint name="field_to_crossbar" type="fixed">
+    <parent link="field_base"/>
+    <child link="crossbar"/>
+  </joint>
+
+  <joint name="field_to_left_goal_back" type="fixed">
+    <parent link="field_base"/>
+    <child link="left_goal_back"/>
+  </joint>
+
+  <joint name="field_to_right_goal_back" type="fixed">
+    <parent link="field_base"/>
+    <child link="right_goal_back"/>
+  </joint>
+
+  <joint name="field_to_back_crossbar" type="fixed">
+    <parent link="field_base"/>
+    <child link="back_crossbar"/>
+  </joint>
+
+  <joint name="field_to_penalty_area_front" type="fixed">
+    <parent link="field_base"/>
+    <child link="penalty_area_front"/>
+  </joint>
+
+  <joint name="field_to_penalty_area_left" type="fixed">
+    <parent link="field_base"/>
+    <child link="penalty_area_left"/>
+  </joint>
+
+  <joint name="field_to_penalty_area_right" type="fixed">
+    <parent link="field_base"/>
+    <child link="penalty_area_right"/>
+  </joint>
+
+  <joint name="field_to_penalty_spot" type="fixed">
+    <parent link="field_base"/>
+    <child link="penalty_spot"/>
+  </joint>
+
+  <joint name="field_to_center_circle_arc_1" type="fixed">
+    <parent link="field_base"/>
+    <child link="center_circle_arc_1"/>
+  </joint>
+
+  <joint name="field_to_center_circle_arc_2" type="fixed">
+    <parent link="field_base"/>
+    <child link="center_circle_arc_2"/>
+  </joint>
+
+  <joint name="field_to_center_circle_arc_3" type="fixed">
+    <parent link="field_base"/>
+    <child link="center_circle_arc_3"/>
+  </joint>
+
+  <joint name="field_to_left_corner_arc_1" type="fixed">
+    <parent link="field_base"/>
+    <child link="left_corner_arc_1"/>
+  </joint>
+
+  <joint name="field_to_left_corner_arc_2" type="fixed">
+    <parent link="field_base"/>
+    <child link="left_corner_arc_2"/>
+  </joint>
+
+  <joint name="field_to_right_corner_arc_1" type="fixed">
+    <parent link="field_base"/>
+    <child link="right_corner_arc_1"/>
+  </joint>
+
+  <joint name="field_to_right_corner_arc_2" type="fixed">
+    <parent link="field_base"/>
+    <child link="right_corner_arc_2"/>
+  </joint>
+
+</robot> 
