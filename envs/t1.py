@@ -60,6 +60,7 @@ class T1(BaseTask):
         self.dof_pos_limits = torch.zeros(self.num_dofs, 2, dtype=torch.float, device=self.device)
         self.dof_vel_limits = torch.zeros(self.num_dofs, dtype=torch.float, device=self.device)
         self.torque_limits = torch.zeros(self.num_dofs, dtype=torch.float, device=self.device)
+        
         for i in range(self.num_dofs):
             self.dof_pos_limits[i, 0] = dof_props_asset["lower"][i].item()
             self.dof_pos_limits[i, 1] = dof_props_asset["upper"][i].item()
