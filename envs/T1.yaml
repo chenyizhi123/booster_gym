@@ -9,10 +9,10 @@ basic:
 
 env:
   num_envs: 4096
-  num_observations: 47
-  num_privileged_obs: 14
+  num_observations: 60
+  num_privileged_obs: 20
   num_actions: 12
-  env_spacing: 1.  # not used with plane terrain
+  env_spacing: 15.  # not used with plane terrain
 
 runner:
   horizon_length: 24
@@ -89,7 +89,7 @@ init_state:
   default_joint_angles: {"Hip_Pitch": -0.2, "Knee_Pitch": 0.4, "Ankle_Pitch": -0.25, "default": 0.} # target angles when action = 0.0
 
 control:
-  stiffness: {"Hip": 200., "Knee": 200., "Ankle": 50.} # [N*m/rad]
+  stiffness: {"Hip": 200., "Kfe": 200., "Ankle": 50.} # [N*m/rad]
   damping: {"Hip": 5., "Knee": 5., "Ankle": 1.} # [N*m*s/rad]
   action_scale: 1.
   decimation: 10

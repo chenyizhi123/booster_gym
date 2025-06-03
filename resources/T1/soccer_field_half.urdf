@@ -2,6 +2,7 @@
 <robot name="soccer_field_half">
   <!-- 优化版机器人足球半场 URDF 描述 -->
   <!-- 基于 RoboCup MSL 规格，半场尺寸: 9米 x 12米 -->
+  <!-- 原点位于场地中心 (0,0,0) -->
   
   <!-- 材质定义 -->
   <material name="green">
@@ -16,96 +17,96 @@
     <color rgba="0.9 0.9 0.9 1.0"/>
   </material>
   
-  <!-- 基础链接 - 场地中心 -->
+  <!-- 基础链接 - 场地中心在原点 -->
   <link name="field_base">
     <visual>
-      <origin xyz="6 4.5 0" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <box size="12 9 0.01"/>
       </geometry>
       <material name="green"/>
     </visual>
     <collision>
-      <origin xyz="6 4.5 0" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <box size="12 9 0.01"/>
       </geometry>
     </collision>
     <inertial>
       <mass value="1000.0"/>
-      <origin xyz="6 4.5 0" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <inertia ixx="10000.0" ixy="0.0" ixz="0.0" iyy="10000.0" iyz="0.0" izz="10000.0"/>
     </inertial>
   </link>
 
   <!-- 所有场地线条合并为一个link以减少渲染开销 -->
   <link name="field_lines">
-    <!-- 中线 -->
+    <!-- 中线 (原y=0，现y=-4.5) -->
+    <visual>
+      <origin xyz="0 -4.5 0.006" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 0.1 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 左边线 (原x=0，现x=-6) -->
+    <visual>
+      <origin xyz="-6 0 0.006" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 9 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 右边线 (原x=12，现x=6) -->
     <visual>
       <origin xyz="6 0 0.006" rpy="0 0 0"/>
       <geometry>
-        <box size="12 0.1 0.001"/>
+        <box size="0.1 9 0.001"/>
       </geometry>
       <material name="white"/>
     </visual>
     
-    <!-- 左边线 -->
+    <!-- 球门线 (原y=9，现y=4.5) -->
     <visual>
       <origin xyz="0 4.5 0.006" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 9 0.001"/>
-      </geometry>
-      <material name="white"/>
-    </visual>
-    
-    <!-- 右边线 -->
-    <visual>
-      <origin xyz="12 4.5 0.006" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.1 9 0.001"/>
-      </geometry>
-      <material name="white"/>
-    </visual>
-    
-    <!-- 球门线 -->
-    <visual>
-      <origin xyz="6 9 0.006" rpy="0 0 0"/>
-      <geometry>
         <box size="12 0.1 0.001"/>
       </geometry>
       <material name="white"/>
     </visual>
     
-    <!-- 禁区前边线 -->
+    <!-- 禁区前边线 (原y=6.8，现y=2.3) -->
     <visual>
-      <origin xyz="6 6.8 0.006" rpy="0 0 0"/>
+      <origin xyz="0 2.3 0.006" rpy="0 0 0"/>
       <geometry>
         <box size="6 0.1 0.001"/>
       </geometry>
       <material name="white"/>
     </visual>
     
-    <!-- 禁区左边线 -->
+    <!-- 禁区左边线 (原x=3，现x=-3) -->
     <visual>
-      <origin xyz="3 7.9 0.006" rpy="0 0 0"/>
+      <origin xyz="-3 3.4 0.006" rpy="0 0 0"/>
       <geometry>
         <box size="0.1 2.2 0.001"/>
       </geometry>
       <material name="white"/>
     </visual>
     
-    <!-- 禁区右边线 -->
+    <!-- 禁区右边线 (原x=9，现x=3) -->
     <visual>
-      <origin xyz="9 7.9 0.006" rpy="0 0 0"/>
+      <origin xyz="3 3.4 0.006" rpy="0 0 0"/>
       <geometry>
         <box size="0.1 2.2 0.001"/>
       </geometry>
       <material name="white"/>
     </visual>
     
-    <!-- 罚球点 -->
+    <!-- 罚球点 (原x=6,y=6，现x=0,y=1.5) -->
     <visual>
-      <origin xyz="6 6 0.006" rpy="0 0 0"/>
+      <origin xyz="0 1.5 0.006" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="0.05" length="0.001"/>
       </geometry>
@@ -115,31 +116,31 @@
 
   <!-- 球门结构 -->
   <link name="goal_structure">
-    <!-- 左门柱 -->
+    <!-- 左门柱 (原x=4.825，现x=-1.175) -->
     <visual>
-      <origin xyz="4.825 9 0.4" rpy="0 0 0"/>
+      <origin xyz="-1.175 4.5 0.4" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="0.05" length="0.8"/>
       </geometry>
       <material name="goal_material"/>
     </visual>
     <collision>
-      <origin xyz="4.825 9 0.4" rpy="0 0 0"/>
+      <origin xyz="-1.175 4.5 0.4" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="0.05" length="0.8"/>
       </geometry>
     </collision>
     
-    <!-- 右门柱 -->
+    <!-- 右门柱 (原x=7.175，现x=1.175) -->
     <visual>
-      <origin xyz="7.175 9 0.4" rpy="0 0 0"/>
+      <origin xyz="1.175 4.5 0.4" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="0.05" length="0.8"/>
       </geometry>
       <material name="goal_material"/>
     </visual>
     <collision>
-      <origin xyz="7.175 9 0.4" rpy="0 0 0"/>
+      <origin xyz="1.175 4.5 0.4" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="0.05" length="0.8"/>
       </geometry>
@@ -147,14 +148,14 @@
     
     <!-- 横梁 -->
     <visual>
-      <origin xyz="6 9 0.8" rpy="0 1.5708 0"/>
+      <origin xyz="0 4.5 0.8" rpy="0 1.5708 0"/>
       <geometry>
         <cylinder radius="0.05" length="2.35"/>
       </geometry>
       <material name="goal_material"/>
     </visual>
     <collision>
-      <origin xyz="6 9 0.8" rpy="0 1.5708 0"/>
+      <origin xyz="0 4.5 0.8" rpy="0 1.5708 0"/>
       <geometry>
         <cylinder radius="0.05" length="2.35"/>
       </geometry>
@@ -162,7 +163,7 @@
     
     <inertial>
       <mass value="50.0"/>
-      <origin xyz="6 9 0.4" rpy="0 0 0"/>
+      <origin xyz="0 4.5 0.4" rpy="0 0 0"/>
       <inertia ixx="10.0" ixy="0.0" ixz="0.0" iyy="10.0" iyz="0.0" izz="10.0"/>
     </inertial>
   </link>
