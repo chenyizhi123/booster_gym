@@ -149,26 +149,30 @@ class T1(BaseTask):
             self.gym.set_actor_rigid_shape_properties(env_handle, actor_handle, shape_props)
             self.gym.enable_actor_dof_force_sensors(env_handle, actor_handle)
             "==下面处理足球和足球场=="
+            
+            # 先创建足球（索引1）
+            ball_pose = gymapi.Transform()
+            ball_position_model = 'random'
+            ball_position_range = [[-6, 6], [-4.5, 4.5], [0.11, 0.11]]
+            
+            if ball_position_model == 'random':
+                ball_pose.p = gymapi.Vec3(
+                    pos[0] + np.random.uniform(ball_position_range[0][0], ball_position_range[0][1]),
+                    pos[1] + np.random.uniform(ball_position_range[1][0], ball_position_range[1][1]),
+                    pos[2] + ball_position_range[2][0]
+                )
+            else:
+                ball_pose.p = gymapi.Vec3(pos[0], pos[1], pos[2] + 0.11)
+            
+            ball_handle = self.gym.create_actor(env_handle, ball_asset, ball_pose, "ball", i, 1, 0)
+            self.ball_handles.append(ball_handle)
+            
+            # 再创建场地（索引2）
             field_pose = gymapi.Transform() 
             field_pose.p = gymapi.Vec3(pos[0], pos[1], -0.01)
             field_handle = self.gym.create_actor(env_handle, field_asset, field_pose, "field", i, 1, 0)
             self.field_handles.append(field_handle)
 
-            ball_pose = gymapi.Transform()
-            ball_pose.p = gymapi.Vec3(pos[0], pos[1], pos[2])
-            ball_handle = self.gym.create_actor(env_handle, ball_asset, ball_pose, "ball", i, 1, 0)
-            ball_position_model='random'
-            ball_position_range=[[-6,6],[-4.5,4.5],[0.11,0.11]]
-            try:
-                if ball_position_model == 'random':
-                    ball_pose.p.x =pos[0]+np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
-                    ball_pose.p.y = pos[1]+np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
-                    ball_pose.p.z = pos[2]+np.random.uniform(ball_position_range[2][0], ball_position_range[2][1])
-            except Exception as e:
-                print(f"Error occurred while setting ball position: {e}")
-            ball_handle = self.gym.create_actor(env_handle, ball_asset, ball_pose, "ball", i, 1, 0)
-            self.ball_handles.append(ball_handle)
-            self.field_handles.append(field_handle)
             self.envs.append(env_handle)
             self.actor_handles.append(actor_handle)
 
@@ -225,7 +229,8 @@ class T1(BaseTask):
         self.num_privileged_obs = self.cfg["env"]["num_privileged_obs"]
         self.num_actions = self.cfg["env"]["num_actions"]
         self.dt = self.cfg["control"]["decimation"] * self.cfg["sim"]["dt"]
-                # ===下面是新增的observation部分=======================
+        
+        # ===下面是新增的observation部分=======================
         self.ball_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.ball_velocity = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.ball_local_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
@@ -236,17 +241,18 @@ class T1(BaseTask):
         self.goal_position[:, 0] = self.env_origins[:, 0]
         self.goal_position[:, 1] = self.env_origins[:, 1] + 4.5
         self.goal_position[:, 2] = self.env_origins[:, 2] + 0.2
-        self.goal_width=2.35
-        self.goal_height=0.8
-        self.goal_dir_relative= torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)#目标球门到机器人的方向
-        self.ball_to_goal_angle = torch.zeros(self.num_envs,1, dtype=torch.float, device=self.device)  # 球到球门的角度
-        self.ball_to_goal_vec= torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)  # 球到球门的向量
-        # self.ball_to_goal_vec[:, 0] = self.goal_position[:, 0] - self.ball_position[:, 0]
-        # self.ball_to_goal_vec[:, 1] = self.goal_position[:, 1] - self.ball_position[:, 1]
-        # self.ball_to_goal_vec[:, 2] = self.goal_position[:, 2] - self.ball_position[:, 2]
+        self.goal_width = 2.35
+        self.goal_height = 0.8
+        self.goal_dir_relative = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)  # 目标球门到机器人的方向
+        self.ball_to_goal_angle = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device)  # 球到球门的角度
+        self.ball_to_goal_vec = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)  # 球到球门的向量
+        
+        # 新增：朝向角度（机器人前进方向与球门方向的夹角）
+        self.heading_angle = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device)
+        
 
-        # self.ball_to_goal_angle = torch.atan2(self.ball_to_goal_vec[:, 1], self.ball_to_goal_vec[:, 0]).unsqueeze(1)  # 球到球门的角度
         # ====================================================
+        
         self.obs_buf = torch.zeros(self.num_envs, self.num_obs, dtype=torch.float, device=self.device)
         self.privileged_obs_buf = torch.zeros(self.num_envs, self.num_privileged_obs, dtype=torch.float, device=self.device)
         self.rew_buf = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -267,39 +273,49 @@ class T1(BaseTask):
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_dof_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-        # 下面是对机器人的各个状态进行描述
-        self.num_actors = 3
-        robot_indices = torch.arange(0,self.num_actors*self.num_envs, self.num_actors,device=self.device)
-        soccer_indices = torch.arange(1,self.num_actors*self.num_envs, self.num_actors,device=self.device)
-        field_indices = torch.arange(2,self.num_actors*self.num_envs, self.num_actors,device=self.device)
+        
+        # 下面是对机器人、足球和足球场的索引进行描述
+        self.num_actors = 3  # 机器人、足球、足球场
+        robot_indices = torch.arange(0, self.num_actors * self.num_envs, self.num_actors, device=self.device)
+        soccer_indices = torch.arange(1, self.num_actors * self.num_envs, self.num_actors, device=self.device)
+        field_indices = torch.arange(2, self.num_actors * self.num_envs, self.num_actors, device=self.device)
+        
         # =============上面是机器人，足球和足球场的索引处理========================
         self.soccer_indices = soccer_indices
         self.field_indices = field_indices
         self.robot_indices = robot_indices
+        
         # create some wrapper tensors for different slices
         self.root_states = gymtorch.wrap_tensor(actor_root_state)
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 1]
-    # =================   下面是对机器人的各个状态进行描述
-        self.robot_root_states=self.root_states[robot_indices]
-        self.soccer_root_states=self.root_states[robot_indices]
-        self.field_root_states=self.root_states[field_indices]
+        
+        # =================   下面是对机器人、足球、足球场的各个状态进行描述
+        self.robot_root_states = self.root_states[self.robot_indices]
+        self.soccer_root_states = self.root_states[self.soccer_indices]
+        self.field_root_states = self.root_states[self.field_indices]
+        
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
         self.body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
+        
+        # 机器人相关状态
         self.base_pos = self.robot_root_states[:, 0:3]
         self.base_quat = self.robot_root_states[:, 3:7]
         self.feet_pos = self.body_states[:, self.feet_indices, 0:3]
         self.feet_quat = self.body_states[:, self.feet_indices, 3:7]
-        self.robot_body_states = self.body_states[:,:self.num_bodies, :]
+        self.robot_body_states = self.body_states[:, :self.num_bodies, :]
         self.robot_dof_state = self.dof_state
+        
+        # 足球相关状态会在_update_ball_observations中动态更新
+        
         # initialize some data used later on
         self.common_step_counter = 0
         self.gravity_vec = to_torch(get_axis_params(-1.0, self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
         self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device)
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
-        self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
+        self.last_root_vel = torch.zeros_like(self.robot_root_states[:, 7:13])  # 修正：使用robot_root_states
         self.last_dof_targets = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
         self.delay_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.torques = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
@@ -307,8 +323,8 @@ class T1(BaseTask):
         self.cmd_resample_time = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.gait_frequency = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.gait_process = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.robot_root_states[:, 7:10])  # 修正：使用robot_root_states
+        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.robot_root_states[:, 10:13])  # 修正：使用robot_root_states
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         self.filtered_lin_vel = self.base_lin_vel.clone()
         self.filtered_ang_vel = self.base_ang_vel.clone()
@@ -324,15 +340,18 @@ class T1(BaseTask):
         self.mean_ang_vel_level = 0.0
         self.max_lin_vel_level = 0.0
         self.max_ang_vel_level = 0.0
+        
         # 下面加了4，原因是为了给足球场和足球的推力和扭矩留出空间
-        self.pushing_forces = torch.zeros(self.num_envs, self.num_bodies+4, 3, dtype=torch.float, device=self.device)
-        self.pushing_torques = torch.zeros(self.num_envs, self.num_bodies+4, 3, dtype=torch.float, device=self.device)
+        self.pushing_forces = torch.zeros(self.num_envs, self.num_bodies + 4, 3, dtype=torch.float, device=self.device)
+        self.pushing_torques = torch.zeros(self.num_envs, self.num_bodies + 4, 3, dtype=torch.float, device=self.device)
+        
         self.feet_roll = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.float, device=self.device)
         self.feet_yaw = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.float, device=self.device)
         self.last_feet_pos = torch.zeros_like(self.feet_pos)
         self.feet_contact = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device)
         self.dof_pos_ref = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
         self.default_dof_pos = torch.zeros(1, self.num_dofs, dtype=torch.float, device=self.device)
+        
         for i in range(self.num_dofs):
             found = False
             for name in self.cfg["init_state"]["default_joint_angles"].keys():
@@ -341,6 +360,9 @@ class T1(BaseTask):
                     found = True
             if not found:
                 self.default_dof_pos[:, i] = self.cfg["init_state"]["default_joint_angles"]["default"]
+        
+        # 初始化足球相关的观察变量
+        self._update_ball_observations()
 
     def _prepare_reward_function(self):
         """Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -366,6 +388,7 @@ class T1(BaseTask):
         """Reset all robots"""
         self._reset_idx(torch.arange(self.num_envs, device=self.device))
         self._resample_commands()
+        self._update_ball_observations()  # 更新足球观察状态
         self._compute_observations()
         return self.obs_buf, self.extras
     
@@ -377,11 +400,19 @@ class T1(BaseTask):
         self._reset_root_states(env_ids)
 
         self.last_dof_targets[env_ids] = self.dof_pos[env_ids]
-        self.last_root_vel[env_ids] = self.root_states[env_ids, 7:13]
+        self.last_root_vel[env_ids] = self.robot_root_states[env_ids, 7:13]
         self.episode_length_buf[env_ids] = 0
         self.filtered_lin_vel[env_ids] = 0.0
         self.filtered_ang_vel[env_ids] = 0.0
         self.cmd_resample_time[env_ids] = 0
+        
+        # 重置足球相关的局部观察（会在_update_ball_observations中重新计算）
+        self.ball_local_position[env_ids] = 0.0
+        self.ball_local_velocity[env_ids] = 0.0
+        self.goal_dir_relative[env_ids] = 0.0
+        self.ball_to_goal_vec[env_ids] = 0.0
+        self.ball_to_goal_angle[env_ids] = 0.0
+        self.heading_angle[env_ids] = 0.0
 
         self.delay_steps[env_ids] = torch.randint(0, self.cfg["control"]["decimation"], (len(env_ids),), device=self.device)
         self.extras["time_outs"] = self.time_out_buf
@@ -395,10 +426,11 @@ class T1(BaseTask):
         )
 
     def _reset_root_states(self, env_ids):
-        self.robot_root_states_states[env_ids] = self.base_init_state
+        # 重置机器人状态
+        self.robot_root_states[env_ids] = self.base_init_state
         self.robot_root_states[env_ids, :2] += self.env_origins[env_ids, :2]
-        self.robot_root_states[env_ids, :2] = apply_randomization(self.root_states[env_ids, :2], self.cfg["randomization"].get("init_base_pos_xy"))
-        self.robot_root_states[env_ids, 2] += self.terrain.terrain_heights(self.root_states[env_ids, :2])
+        self.robot_root_states[env_ids, :2] = apply_randomization(self.robot_root_states[env_ids, :2], self.cfg["randomization"].get("init_base_pos_xy"))
+        self.robot_root_states[env_ids, 2] += self.terrain.terrain_heights(self.robot_root_states[env_ids, :2])
         self.robot_root_states[env_ids, 3:7] = quat_from_euler_xyz(
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
@@ -408,23 +440,51 @@ class T1(BaseTask):
             torch.zeros(len(env_ids), 2, dtype=torch.float, device=self.device),
             self.cfg["randomization"].get("init_base_lin_vel_xy"),
         )
+        
+        # 重置足球状态
+        # 设置足球的随机位置（与_create_envs中保持一致）
+        ball_position_model = 'random'
+        ball_position_range = [[-6, 6], [-4.5, 4.5], [0.11, 0.11]]
+        
+        for i, env_id in enumerate(env_ids):
+            if ball_position_model == 'random':
+                self.soccer_root_states[env_id, 0] = self.env_origins[env_id, 0] + np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
+                self.soccer_root_states[env_id, 1] = self.env_origins[env_id, 1] + np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
+                self.soccer_root_states[env_id, 2] = self.env_origins[env_id, 2] + ball_position_range[2][0]
+            else:
+                # 默认位置：在环境中心
+                self.soccer_root_states[env_id, 0] = self.env_origins[env_id, 0]
+                self.soccer_root_states[env_id, 1] = self.env_origins[env_id, 1]
+                self.soccer_root_states[env_id, 2] = self.env_origins[env_id, 2] + 0.11
+        
+        # 重置足球的速度和旋转
+        self.soccer_root_states[env_ids, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)  # 单位四元数
+        self.soccer_root_states[env_ids, 7:13] = 0.0  # 线速度和角速度归零
+        
+        # 更新所有actor的状态（包括机器人和足球）
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
     def _teleport_robot(self):
         if self.terrain.type == "plane":
             return
-        out_x_min = self.root_states[:, 0] < -0.75 * self.terrain.border_size
-        out_x_max = self.root_states[:, 0] > self.terrain.env_width + 0.75 * self.terrain.border_size
-        out_y_min = self.root_states[:, 1] < -0.75 * self.terrain.border_size
-        out_y_max = self.root_states[:, 1] > self.terrain.env_length + 0.75 * self.terrain.border_size
-        self.root_states[out_x_min, 0] += self.terrain.env_width + self.terrain.border_size
-        self.root_states[out_x_max, 0] -= self.terrain.env_width + self.terrain.border_size
-        self.root_states[out_y_min, 1] += self.terrain.env_length + self.terrain.border_size
-        self.root_states[out_y_max, 1] -= self.terrain.env_length + self.terrain.border_size
-        self.body_states[out_x_min, :, 0] += self.terrain.env_width + self.terrain.border_size
-        self.body_states[out_x_max, :, 0] -= self.terrain.env_width + self.terrain.border_size
-        self.body_states[out_y_min, :, 1] += self.terrain.env_length + self.terrain.border_size
-        self.body_states[out_y_max, :, 1] -= self.terrain.env_length + self.terrain.border_size
+        # 只检查机器人的位置
+        out_x_min = self.robot_root_states[:, 0] < -0.75 * self.terrain.border_size
+        out_x_max = self.robot_root_states[:, 0] > self.terrain.env_width + 0.75 * self.terrain.border_size
+        out_y_min = self.robot_root_states[:, 1] < -0.75 * self.terrain.border_size
+        out_y_max = self.robot_root_states[:, 1] > self.terrain.env_length + 0.75 * self.terrain.border_size
+        
+        # 传送机器人
+        self.robot_root_states[out_x_min, 0] += self.terrain.env_width + self.terrain.border_size
+        self.robot_root_states[out_x_max, 0] -= self.terrain.env_width + self.terrain.border_size
+        self.robot_root_states[out_y_min, 1] += self.terrain.env_length + self.terrain.border_size
+        self.robot_root_states[out_y_max, 1] -= self.terrain.env_length + self.terrain.border_size
+        
+        # 更新机器人的身体状态
+        self.robot_body_states[out_x_min, :, 0] += self.terrain.env_width + self.terrain.border_size
+        self.robot_body_states[out_x_max, :, 0] -= self.terrain.env_width + self.terrain.border_size
+        self.robot_body_states[out_y_min, :, 1] += self.terrain.env_length + self.terrain.border_size
+        self.robot_body_states[out_y_max, :, 1] -= self.terrain.env_length + self.terrain.border_size
+        
         if out_x_min.any() or out_x_max.any() or out_y_min.any() or out_y_max.any():
             self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
             self._refresh_feet_state()
@@ -528,11 +588,14 @@ class T1(BaseTask):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.base_pos[:] = self.root_states[:, 0:3]
-        self.base_quat[:] = self.root_states[:, 3:7]
-        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        
+        # 更新机器人状态（注意：要使用robot_root_states而不是root_states）
+        self.base_pos[:] = self.robot_root_states[:, 0:3]
+        self.base_quat[:] = self.robot_root_states[:, 3:7]
+        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.robot_root_states[:, 7:10])
+        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.robot_root_states[:, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
+        
         self.filtered_lin_vel[:] = self.base_lin_vel[:] * self.cfg["normalization"]["filter_weight"] + self.filtered_lin_vel[:] * (
             1.0 - self.cfg["normalization"]["filter_weight"]
         )
@@ -540,6 +603,9 @@ class T1(BaseTask):
             1.0 - self.cfg["normalization"]["filter_weight"]
         )
         self._refresh_feet_state()
+        
+        # 更新足球相关的观察状态
+        self._update_ball_observations()
 
         self.episode_length_buf += 1
         self.common_step_counter += 1
@@ -559,7 +625,7 @@ class T1(BaseTask):
 
         self.last_actions[:] = self.actions
         self.last_dof_vel[:] = self.dof_vel
-        self.last_root_vel[:] = self.root_states[:, 7:13]
+        self.last_root_vel[:] = self.robot_root_states[:, 7:13]  # 修正：使用robot_root_states
         self.last_feet_pos[:] = self.feet_pos
 
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
@@ -567,8 +633,9 @@ class T1(BaseTask):
     def _kick_robots(self):
         """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
         if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
-            self.root_states[:, 7:10] = apply_randomization(self.root_states[:, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
-            self.root_states[:, 10:13] = apply_randomization(self.root_states[:, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
+            # 只对机器人施加随机速度
+            self.robot_root_states[:, 7:10] = apply_randomization(self.robot_root_states[:, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
+            self.robot_root_states[:, 10:13] = apply_randomization(self.robot_root_states[:, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
             self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
     def _push_robots(self):
@@ -619,7 +686,8 @@ class T1(BaseTask):
     def _check_termination(self):
         """Check if environments need to be reset"""
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1.0, dim=1)
-        self.reset_buf |= self.root_states[:, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
+        # 只检查机器人的速度
+        self.reset_buf |= self.robot_root_states[:, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
         self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
         self.time_out_buf = self.episode_length_buf > np.ceil(self.cfg["rewards"]["episode_length_s"] / self.dt)
         self.reset_buf |= self.time_out_buf
@@ -645,26 +713,40 @@ class T1(BaseTask):
             [self.cfg["normalization"]["lin_vel"], self.cfg["normalization"]["lin_vel"], self.cfg["normalization"]["ang_vel"]],
             device=self.device,
         )
+        
+        # 基础观察 (47维) + 足球相关观察 (13维) = 60维
         self.obs_buf = torch.cat(
             (
-                apply_randomization(self.projected_gravity, self.cfg["noise"].get("gravity")) * self.cfg["normalization"]["gravity"],
-                apply_randomization(self.base_ang_vel, self.cfg["noise"].get("ang_vel")) * self.cfg["normalization"]["ang_vel"],
-                self.commands[:, :3] * commands_scale,
-                (torch.cos(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),
-                (torch.sin(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),
-                apply_randomization(self.dof_pos - self.default_dof_pos, self.cfg["noise"].get("dof_pos")) * self.cfg["normalization"]["dof_pos"],
-                apply_randomization(self.dof_vel, self.cfg["noise"].get("dof_vel")) * self.cfg["normalization"]["dof_vel"],
-                self.actions,
+                # 基础观察 (47维)
+                apply_randomization(self.projected_gravity, self.cfg["noise"].get("gravity")) * self.cfg["normalization"]["gravity"],  # 3维
+                apply_randomization(self.base_ang_vel, self.cfg["noise"].get("ang_vel")) * self.cfg["normalization"]["ang_vel"],  # 3维
+                self.commands[:, :3] * commands_scale,  # 3维
+                (torch.cos(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),  # 1维
+                (torch.sin(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),  # 1维
+                apply_randomization(self.dof_pos - self.default_dof_pos, self.cfg["noise"].get("dof_pos")) * self.cfg["normalization"]["dof_pos"],  # 18维
+                apply_randomization(self.dof_vel, self.cfg["noise"].get("dof_vel")) * self.cfg["normalization"]["dof_vel"],  # 18维
+                self.actions,  # 18维
+                
+                # 足球相关观察 (13维)
+                self.ball_local_position * 0.5,  # 3维，球相对位置，缩放因子0.5
+                self.ball_local_velocity * 0.2,  # 3维，球相对速度，缩放因子0.2
+                self.goal_dir_relative,  # 3维，球门方向（单位向量）
+                self.heading_angle,  # 1维，朝向角度
+                self.ball_to_goal_vec * 0.1,  # 3维，球到球门向量，缩放因子0.1
             ),
             dim=-1,
         )
+        
+        # 特权观察 (14维 + 6维 = 20维)
         self.privileged_obs_buf = torch.cat(
             (
-                self.base_mass_scaled,
-                apply_randomization(self.base_lin_vel, self.cfg["noise"].get("lin_vel")) * self.cfg["normalization"]["lin_vel"],
-                apply_randomization(self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos), self.cfg["noise"].get("height")).unsqueeze(-1),
-                self.pushing_forces[:, 0, :] * self.cfg["normalization"]["push_force"],
-                self.pushing_torques[:, 0, :] * self.cfg["normalization"]["push_torque"],
+                self.base_mass_scaled,  # 4维，基座质量信息
+                apply_randomization(self.base_lin_vel, self.cfg["noise"].get("lin_vel")) * self.cfg["normalization"]["lin_vel"],  # 3维
+                apply_randomization(self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos), self.cfg["noise"].get("height")).unsqueeze(-1),  # 1维
+                self.pushing_forces[:, 0, :] * self.cfg["normalization"]["push_force"],  # 3维
+                self.pushing_torques[:, 0, :] * self.cfg["normalization"]["push_torque"],  # 3维
+                self.ball_position,  # 3维，球世界位置
+                self.ball_velocity,  # 3维，球世界速度
             ),
             dim=-1,
         )
@@ -722,7 +804,7 @@ class T1(BaseTask):
 
     def _reward_root_acc(self):
         # Penalize root accelerations
-        return torch.sum(torch.square((self.last_root_vel - self.root_states[:, 7:13]) / self.dt), dim=-1)
+        return torch.sum(torch.square((self.last_root_vel - self.robot_root_states[:, 7:13]) / self.dt), dim=-1)
 
     def _reward_action_rate(self):
         # Penalize changes in actions
@@ -796,3 +878,45 @@ class T1(BaseTask):
         left_swing = (torch.abs(self.gait_process - 0.25) < 0.5 * self.cfg["rewards"]["swing_period"]) & (self.gait_frequency > 1.0e-8)
         right_swing = (torch.abs(self.gait_process - 0.75) < 0.5 * self.cfg["rewards"]["swing_period"]) & (self.gait_frequency > 1.0e-8)
         return (left_swing & ~self.feet_contact[:, 0]).float() + (right_swing & ~self.feet_contact[:, 1]).float()
+
+    def _update_ball_observations(self):
+        """更新足球相关的观察变量"""
+        # 更新足球状态（从仿真中获取最新值）
+        self.ball_position[:] = self.soccer_root_states[:, 0:3]
+        self.ball_velocity[:] = self.soccer_root_states[:, 7:10]
+        self.ball_angular_velocity[:] = self.soccer_root_states[:, 10:13]
+        
+        # 1. 计算球在机器人局部坐标系中的位置
+        ball_relative_world = self.ball_position - self.base_pos
+        self.ball_local_position[:] = quat_rotate_inverse(self.base_quat, ball_relative_world)
+        
+        # 2. 计算球相对于机器人的速度在局部坐标系中
+        ball_relative_vel_world = self.ball_velocity - self.robot_root_states[:, 7:10]  # 球速度 - 机器人速度
+        self.ball_local_velocity[:] = quat_rotate_inverse(self.base_quat, ball_relative_vel_world)
+        
+        # 3. 计算球门方向（从机器人到球门的方向，局部坐标系）
+        goal_relative_world = self.goal_position - self.base_pos
+        goal_direction_world = goal_relative_world / (torch.norm(goal_relative_world, dim=1, keepdim=True) + 1e-8)
+        self.goal_dir_relative[:] = quat_rotate_inverse(self.base_quat, goal_direction_world)
+        
+        # 4. 计算球到球门的向量（世界坐标系）
+        self.ball_to_goal_vec[:] = self.goal_position - self.ball_position
+        
+        # 5. 计算球到球门的角度（在水平面上）
+        ball_to_goal_horizontal = self.ball_to_goal_vec[:, :2]  # 只考虑x, y
+        self.ball_to_goal_angle[:] = torch.atan2(
+            ball_to_goal_horizontal[:, 1], 
+            ball_to_goal_horizontal[:, 0]
+        ).unsqueeze(1)
+        
+        # 6. 计算机器人前进方向与球门方向的夹角
+        # 机器人前进方向（局部坐标系的x轴在世界坐标系中的方向）
+        robot_forward_world = quat_rotate(self.base_quat, torch.tensor([1.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1))
+        
+        # 球门方向（世界坐标系）
+        goal_dir_world = goal_relative_world / (torch.norm(goal_relative_world, dim=1, keepdim=True) + 1e-8)
+        
+        # 计算夹角（0到π之间）
+        cos_angle = torch.sum(robot_forward_world * goal_dir_world, dim=1)
+        cos_angle = torch.clamp(cos_angle, -1.0, 1.0)  # 防止数值误差
+        self.heading_angle[:] = torch.acos(cos_angle).unsqueeze(1)
