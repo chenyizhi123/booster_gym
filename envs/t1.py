@@ -30,6 +30,38 @@ class T1(BaseTask):
         self._init_buffers()
         self._prepare_reward_function()
 
+    # ============= Properties for auto-sync with root_states =============
+    @property
+    def robot_root_states(self):
+        """机器人根状态的动态视图，自动与root_states同步"""
+        return self.root_states[self.robot_indices]
+    
+    @robot_root_states.setter
+    def robot_root_states(self, value):
+        """设置机器人根状态"""
+        self.root_states[self.robot_indices] = value
+    
+    @property
+    def soccer_root_states(self):
+        """足球根状态的动态视图，自动与root_states同步"""
+        return self.root_states[self.soccer_indices]
+    
+    @soccer_root_states.setter
+    def soccer_root_states(self, value):
+        """设置足球根状态"""
+        self.root_states[self.soccer_indices] = value
+    
+    @property
+    def field_root_states(self):
+        """场地根状态的动态视图，自动与root_states同步"""
+        return self.root_states[self.field_indices]
+    
+    @field_root_states.setter
+    def field_root_states(self, value):
+        """设置场地根状态"""
+        self.root_states[self.field_indices] = value
+    # =====================================================================
+
     def _create_envs(self):
         self.num_envs = self.cfg["env"]["num_envs"]
         asset_cfg = self.cfg["asset"]
@@ -292,9 +324,10 @@ class T1(BaseTask):
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 1]
         
         # =================   下面是对机器人、足球、足球场的各个状态进行描述
-        self.robot_root_states = self.root_states[self.robot_indices]
-        self.soccer_root_states = self.root_states[self.soccer_indices]
-        self.field_root_states = self.root_states[self.field_indices]
+        # 注意：这些现在是 property，会自动与 root_states 同步
+        # self.robot_root_states = self.root_states[self.robot_indices]
+        # self.soccer_root_states = self.root_states[self.soccer_indices]  
+        # self.field_root_states = self.root_states[self.field_indices]
         
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
         self.body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
@@ -315,7 +348,7 @@ class T1(BaseTask):
         self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device)
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
-        self.last_root_vel = torch.zeros_like(self.robot_root_states[:, 7:13])  # 修正：使用robot_root_states
+        self.last_root_vel = torch.zeros_like(self.robot_root_states[:, 7:13])  # 修正：创建零张量
         self.last_dof_targets = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
         self.delay_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.torques = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
@@ -426,11 +459,19 @@ class T1(BaseTask):
         )
 
     def _reset_root_states(self, env_ids):
-        # 重置机器人状态
+        # 重置机器人状态（使用property保持一致性）
+        
+        # 设置机器人的基础状态
         self.robot_root_states[env_ids] = self.base_init_state
         self.robot_root_states[env_ids, :2] += self.env_origins[env_ids, :2]
         self.robot_root_states[env_ids, :2] = apply_randomization(self.robot_root_states[env_ids, :2], self.cfg["randomization"].get("init_base_pos_xy"))
-        self.robot_root_states[env_ids, 2] += self.terrain.terrain_heights(self.robot_root_states[env_ids, :2])
+        
+        # 对于plane地形，高度直接为0
+        if self.terrain.type == "plane":
+            self.robot_root_states[env_ids, 2] += 0.0
+        else:
+            self.robot_root_states[env_ids, 2] += self.terrain.terrain_heights(self.robot_root_states[env_ids, :3])
+        
         self.robot_root_states[env_ids, 3:7] = quat_from_euler_xyz(
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
@@ -589,7 +630,7 @@ class T1(BaseTask):
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         
-        # 更新机器人状态（注意：要使用robot_root_states而不是root_states）
+        # 更新机器人状态（使用robot_root_states property实现自动同步）
         self.base_pos[:] = self.robot_root_states[:, 0:3]
         self.base_quat[:] = self.robot_root_states[:, 3:7]
         self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.robot_root_states[:, 7:10])
@@ -625,7 +666,7 @@ class T1(BaseTask):
 
         self.last_actions[:] = self.actions
         self.last_dof_vel[:] = self.dof_vel
-        self.last_root_vel[:] = self.robot_root_states[:, 7:13]  # 修正：使用robot_root_states
+        self.last_root_vel[:] = self.robot_root_states[:, 7:13]
         self.last_feet_pos[:] = self.feet_pos
 
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
@@ -633,7 +674,7 @@ class T1(BaseTask):
     def _kick_robots(self):
         """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
         if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
-            # 只对机器人施加随机速度
+            # 对机器人施加随机速度（现在robot_root_states是property，可以直接修改）
             self.robot_root_states[:, 7:10] = apply_randomization(self.robot_root_states[:, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
             self.robot_root_states[:, 10:13] = apply_randomization(self.robot_root_states[:, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
             self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
