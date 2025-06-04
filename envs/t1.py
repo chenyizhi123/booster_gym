@@ -459,48 +459,52 @@ class T1(BaseTask):
         )
 
     def _reset_root_states(self, env_ids):
-        # 重置机器人状态（使用property保持一致性）
+        # 重置机器人状态（避免复合索引，直接操作root_states）
+        robot_actor_indices = self.robot_indices[env_ids]
         
         # 设置机器人的基础状态
-        self.robot_root_states[env_ids] = self.base_init_state
-        self.robot_root_states[env_ids, :2] += self.env_origins[env_ids, :2]
-        self.robot_root_states[env_ids, :2] = apply_randomization(self.robot_root_states[env_ids, :2], self.cfg["randomization"].get("init_base_pos_xy"))
+        self.root_states[robot_actor_indices] = self.base_init_state
+        self.root_states[robot_actor_indices, :2] += self.env_origins[env_ids, :2]
+        self.root_states[robot_actor_indices, :2] = apply_randomization(self.root_states[robot_actor_indices, :2], self.cfg["randomization"].get("init_base_pos_xy"))
         
         # 对于plane地形，高度直接为0
         if self.terrain.type == "plane":
-            self.robot_root_states[env_ids, 2] += 0.0
+            self.root_states[robot_actor_indices, 2] += 0.0
         else:
-            self.robot_root_states[env_ids, 2] += self.terrain.terrain_heights(self.robot_root_states[env_ids, :3])
+            self.root_states[robot_actor_indices, 2] += self.terrain.terrain_heights(self.root_states[robot_actor_indices, :3])
         
-        self.robot_root_states[env_ids, 3:7] = quat_from_euler_xyz(
+        self.root_states[robot_actor_indices, 3:7] = quat_from_euler_xyz(
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
             torch.rand(len(env_ids), device=self.device) * (2 * torch.pi),
         )
-        self.robot_root_states[env_ids, 7:9] = apply_randomization(
+        self.root_states[robot_actor_indices, 7:9] = apply_randomization(
             torch.zeros(len(env_ids), 2, dtype=torch.float, device=self.device),
             self.cfg["randomization"].get("init_base_lin_vel_xy"),
         )
         
         # 重置足球状态
+        soccer_actor_indices = self.soccer_indices[env_ids]
+        
         # 设置足球的随机位置（与_create_envs中保持一致）
         ball_position_model = 'random'
         ball_position_range = [[-6, 6], [-4.5, 4.5], [0.11, 0.11]]
         
         for i, env_id in enumerate(env_ids):
+            soccer_idx = self.soccer_indices[env_id]
             if ball_position_model == 'random':
-                self.soccer_root_states[env_id, 0] = self.env_origins[env_id, 0] + np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
-                self.soccer_root_states[env_id, 1] = self.env_origins[env_id, 1] + np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
-                self.soccer_root_states[env_id, 2] = self.env_origins[env_id, 2] + ball_position_range[2][0]
+                self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0] + np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
+                self.root_states[soccer_idx, 1] = self.env_origins[env_id, 1] + np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
+                self.root_states[soccer_idx, 2] = self.env_origins[env_id, 2] + ball_position_range[2][0]
             else:
                 # 默认位置：在环境中心
-                self.soccer_root_states[env_id, 0] = self.env_origins[env_id, 0]
-                self.soccer_root_states[env_id, 1] = self.env_origins[env_id, 1]
-                self.soccer_root_states[env_id, 2] = self.env_origins[env_id, 2] + 0.11
+                self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0]
+                self.root_states[soccer_idx, 1] = self.env_origins[env_id, 1]
+                self.root_states[soccer_idx, 2] = self.env_origins[env_id, 2] + 0.11
         
         # 重置足球的速度和旋转
-        self.soccer_root_states[env_ids, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)  # 单位四元数
-        self.soccer_root_states[env_ids, 7:13] = 0.0  # 线速度和角速度归零
+        self.root_states[soccer_actor_indices, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)  # 单位四元数
+        self.root_states[soccer_actor_indices, 7:13] = 0.0  # 线速度和角速度归零
         
         # 更新所有actor的状态（包括机器人和足球）
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
