@@ -68,7 +68,7 @@ class T1(BaseTask):
         "===下面是创建足球的部分==="
         ball_options = gymapi.AssetOptions()
         ball_options.angular_damping=0.1  #设置足球的角阻尼
-        ball_options.velocity_damping=0.1  #设置足球的速度阻尼
+        ball_options.linear_damping=0.1  #设置足球的线性阻尼（相当于velocity_damping）
         ball_asset = self.gym.load_asset(self.sim, asset_root, "soccer_ball.urdf", ball_options)  
         # ===changed by cyz over here===
         self.dof_stiffness = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
@@ -228,6 +228,7 @@ class T1(BaseTask):
         self.goal_dir_relative= torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)#目标球门到机器人的方向
         self.ball_to_goal_angle = torch.zeros(self.num_envs,1, dtype=torch.float, device=self.device)  # 球到球门的角度
         self.ball_to_goal_vec= torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)  # 球到球门的向量
+        self.heading_angle = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device)  # 添加heading_angle初始化
 
 
         # ========================================================      
@@ -393,7 +394,7 @@ class T1(BaseTask):
         ball_position_model = 'random'
         ball_position_range = [[-6, 6], [-4.5, 4.5], [0.11, 0.11]]
         for i, env_id in enumerate(env_ids):
-            soccer_idx = self.soccer_actor_indices[env_id]
+            soccer_idx = self.soccer_actor_indices[i]
             if ball_position_model == 'random':
                 self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0] + np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
                 self.root_states[soccer_idx, 1] = self.env_origins[env_id, 1] + np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
@@ -411,11 +412,12 @@ class T1(BaseTask):
             self.cfg["randomization"].get("init_base_lin_vel_xy"),
         )
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))   #设置初始化的root_states
+
     def _teleport_robot(self):
         if self.terrain.type == "plane":
             return
         out_x_min = self.robot_root_states[:, 0] < -0.75 * self.terrain.border_size
-        out_x_max = self.robogt_root_states[:, 0] > self.terrain.env_width + 0.75 * self.terrain.border_size
+        out_x_max = self.robot_root_states[:, 0] > self.terrain.env_width + 0.75 * self.terrain.border_size
         out_y_min = self.robot_root_states[:, 1] < -0.75 * self.terrain.border_size
         out_y_max = self.robot_root_states[:, 1] > self.terrain.env_length + 0.75 * self.terrain.border_size
         # 只检查机器人的位置
@@ -561,6 +563,7 @@ class T1(BaseTask):
         self._teleport_robot()
         self._resample_commands()
 
+        self._update_ball_observations()
         self._compute_observations()
 
         self.last_actions[:] = self.actions
