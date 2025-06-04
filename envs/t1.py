@@ -24,18 +24,35 @@ from utils.utils import apply_randomization
 class T1(BaseTask):
 
     def __init__(self, cfg):
+        print(f"[DEBUG] *** T1 INITIALIZATION STARTED ***")
+        print(f"[DEBUG] Config received, num_envs={cfg['env']['num_envs']}")
+        
         super().__init__(cfg)
+        
+        print(f"[DEBUG] BaseTask initialization completed, calling _create_envs...")
         self._create_envs()
+        
+        print(f"[DEBUG] _create_envs completed, calling gym.prepare_sim...")
         self.gym.prepare_sim(self.sim)
+        
+        print(f"[DEBUG] gym.prepare_sim completed, calling _init_buffers...")
         self._init_buffers()
+        
+        print(f"[DEBUG] _init_buffers completed, calling _prepare_reward_function...")
         self._prepare_reward_function()
+        
+        print(f"[DEBUG] *** T1 INITIALIZATION COMPLETED SUCCESSFULLY ***")
 
     def _create_envs(self):
+        print(f"[DEBUG] Starting _create_envs, num_envs={self.num_envs}")
+        
         self.num_envs = self.cfg["env"]["num_envs"]
         asset_cfg = self.cfg["asset"]
         asset_root = os.path.dirname(asset_cfg["file"])
         asset_file = os.path.basename(asset_cfg["file"])
 
+        print(f"[DEBUG] Loading robot asset from {asset_root}/{asset_file}")
+        
         asset_options = gymapi.AssetOptions()
         asset_options.default_dof_drive_mode = asset_cfg["default_dof_drive_mode"]
         asset_options.collapse_fixed_joints = asset_cfg["collapse_fixed_joints"]
@@ -52,9 +69,15 @@ class T1(BaseTask):
         asset_options.disable_gravity = asset_cfg["disable_gravity"]
 
         robot_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+        if robot_asset is None:
+            raise RuntimeError(f"Failed to load robot asset from {asset_root}/{asset_file}")
+        print(f"[DEBUG] Successfully loaded robot asset")
+        
         self.num_dofs = self.gym.get_asset_dof_count(robot_asset)
         self.num_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
+        
+        print(f"[DEBUG] Robot asset info: num_dofs={self.num_dofs}, num_bodies={self.num_bodies}")
 
         dof_props_asset = self.gym.get_asset_dof_properties(robot_asset)
         self.dof_pos_limits = torch.zeros(self.num_dofs, 2, dtype=torch.float, device=self.device)
@@ -66,11 +89,14 @@ class T1(BaseTask):
             self.dof_vel_limits[i] = dof_props_asset["velocity"][i].item()
             self.torque_limits[i] = dof_props_asset["effort"][i].item()
         "===下面是创建足球的部分==="
+        print(f"[DEBUG] Loading ball asset")
         ball_options = gymapi.AssetOptions()
         ball_options.angular_damping=0.1  #设置足球的角阻尼
         ball_options.linear_damping=0.1  #设置足球的线性阻尼（相当于velocity_damping）
         ball_asset = self.gym.load_asset(self.sim, asset_root, "soccer_ball.urdf", ball_options)  
-        # ===changed by cyz over here===
+        if ball_asset is None:
+            raise RuntimeError(f"Failed to load ball asset from {asset_root}/soccer_ball.urdf")
+        print(f"[DEBUG] Successfully loaded ball asset")
         self.dof_stiffness = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
         self.dof_damping = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
         self.dof_friction = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
@@ -126,12 +152,31 @@ class T1(BaseTask):
         self.actor_handles = []
         self.ball_handles= []
         self.base_mass_scaled = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device)
+        
+        # 添加计数器来跟踪创建的Actor数量
+        total_actors_created = 0
+        
+        print(f"[DEBUG] Starting to create {self.num_envs} environments...")
+        
         for i in range(self.num_envs):
+            if i % 128 == 0:  # 每100个环境打印一次进度
+                print(f"[DEBUG] Creating environment {i}/{self.num_envs}")
+                
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
+            if env_handle is None:
+                raise RuntimeError(f"Failed to create environment {i}")
+                
             pos = self.env_origins[i].clone()
             start_pose.p = gymapi.Vec3(*pos)
 
+            # 创建机器人Actor
+            print(f"[DEBUG] Creating robot actor for env {i} at pos {pos}")
             actor_handle = self.gym.create_actor(env_handle, robot_asset, start_pose, asset_cfg["name"], i, asset_cfg["self_collisions"], 0)
+            if actor_handle is None:
+                raise RuntimeError(f"Failed to create robot actor in environment {i}")
+            total_actors_created += 1
+            print(f"[DEBUG] Robot actor created successfully for env {i}, total_actors={total_actors_created}")
+            
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
             body_props = self._process_rigid_body_props(body_props, i)
             self.gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
@@ -155,11 +200,24 @@ class T1(BaseTask):
                 ball_pose.p.y = pos[1]
                 ball_pose.p.z = pos[2] + 0.11
             
-            # 只创建一次球actor
+            # 创建球Actor
+            print(f"[DEBUG] Creating ball actor for env {i} at pos ({ball_pose.p.x}, {ball_pose.p.y}, {ball_pose.p.z})")
             ball_handle = self.gym.create_actor(env_handle, ball_asset, ball_pose, "ball", i, 1, 0)
+            if ball_handle is None:
+                raise RuntimeError(f"Failed to create ball actor in environment {i}")
+            total_actors_created += 1
+            print(f"[DEBUG] Ball actor created successfully for env {i}, total_actors={total_actors_created}")
+            
             self.ball_handles.append(ball_handle)
             self.envs.append(env_handle)
             self.actor_handles.append(actor_handle)
+            
+        print(f"[DEBUG] *** Actor creation completed ***")
+        print(f"[DEBUG] Actor creation summary: {total_actors_created} actors created for {self.num_envs} environments")
+        print(f"[DEBUG] Expected: {self.num_envs * 2} actors, Actual: {total_actors_created} actors")
+        
+        if total_actors_created != self.num_envs * 2:
+            raise RuntimeError(f"Actor creation failed: expected {self.num_envs * 2}, got {total_actors_created}")
 
     def _process_rigid_body_props(self, props, i):
         for j in range(self.num_bodies):
@@ -210,10 +268,15 @@ class T1(BaseTask):
             self.env_origins[:, 2] = self.terrain.terrain_heights(self.env_origins)
 
     def _init_buffers(self):
+        print(f"[DEBUG] Starting _init_buffers")
+        
         self.num_obs = self.cfg["env"]["num_observations"]
         self.num_privileged_obs = self.cfg["env"]["num_privileged_obs"]
         self.num_actions = self.cfg["env"]["num_actions"]
         self.dt = self.cfg["control"]["decimation"] * self.cfg["sim"]["dt"]
+        
+        print(f"[DEBUG] Environment config: num_obs={self.num_obs}, num_actions={self.num_actions}, dt={self.dt}")
+        
                 # ===下面是新增的observation部分=======================
         self.ball_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.ball_velocity = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
@@ -244,21 +307,75 @@ class T1(BaseTask):
         self.extras = {}
         self.extras["rew_terms"] = {}
 
+        print(f"[DEBUG] Acquiring gym state tensors...")
         # get gym state tensors
         actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
         body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        
+        print(f"[DEBUG] Acquired tensors:")
+        print(f"[DEBUG]   actor_root_state.shape = {actor_root_state.shape}")
+        print(f"[DEBUG]   dof_state_tensor.shape = {dof_state_tensor.shape}")
+        print(f"[DEBUG]   net_contact_forces.shape = {net_contact_forces.shape}")
+        print(f"[DEBUG]   body_state.shape = {body_state.shape}")
 
+        # 关键验证：检查实际创建的Actor数量
+        actual_actor_count = actor_root_state.shape[0]
+        expected_actor_count = self.num_envs * 2  # 每环境应该有2个Actor（机器人+球）
+        print(f"[DEBUG] *** CRITICAL VALIDATION ***")
+        print(f"[DEBUG] Critical Debug: actual_actor_count={actual_actor_count}, expected_actor_count={expected_actor_count}")
+        
+        if actual_actor_count != expected_actor_count:
+            print(f"[DEBUG] ERROR: Actor count mismatch! actual={actual_actor_count}, expected={expected_actor_count}")
+            print(f"[DEBUG] This means some environments failed to create proper actors.")
+            # 调整num_actors以匹配实际情况
+            if actual_actor_count % self.num_envs == 0:
+                self.num_actors = actual_actor_count // self.num_envs
+                print(f"[DEBUG] Adjusted num_actors to {self.num_actors} to match actual actor count")
+            else:
+                raise RuntimeError(f"Actor count {actual_actor_count} is not divisible by num_envs {self.num_envs}")
+        else:
+            self.num_actors = 2
+            print(f"[DEBUG] Actor count validation PASSED! Using num_actors = {self.num_actors}")
+
+        print(f"[DEBUG] Refreshing gym tensors...")
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_dof_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        
+        print(f"[DEBUG] Computing actor indices...")
         # 下面是对机器人的各个状态进行描述
-        self.num_actors = 2
+        # self.num_actors = 2  # 注释掉，使用上面动态计算的值
         self.robot_indices = torch.arange(0,self.num_actors*self.num_envs, self.num_actors,device=self.device)
         self.soccer_indices = torch.arange(1,self.num_actors*self.num_envs, self.num_actors,device=self.device)
+        
+        # 添加调试信息验证索引正确性
+        print(f"[DEBUG] *** INDEX VALIDATION ***")
+        print(f"[DEBUG] num_envs={self.num_envs}, num_actors={self.num_actors}")
+        print(f"[DEBUG] robot_indices shape={self.robot_indices.shape}, range=[{self.robot_indices.min()}, {self.robot_indices.max()}]")
+        print(f"[DEBUG] soccer_indices shape={self.soccer_indices.shape}, range=[{self.soccer_indices.min()}, {self.soccer_indices.max()}]")
+        print(f"[DEBUG] First 10 robot_indices: {self.robot_indices[:10]}")
+        print(f"[DEBUG] First 10 soccer_indices: {self.soccer_indices[:10]}")
+        print(f"[DEBUG] Expected total actors={self.num_envs * self.num_actors}")
+        print(f"[DEBUG] Actual root_states shape={actor_root_state.shape}")
+        
+        # 验证索引范围是否正确
+        expected_total_actors = self.num_envs * self.num_actors
+        if self.robot_indices.max() >= expected_total_actors:
+            print(f"[DEBUG] ERROR: robot_indices.max()={self.robot_indices.max()} >= total_actors={expected_total_actors}")
+        if self.soccer_indices.max() >= expected_total_actors:
+            print(f"[DEBUG] ERROR: soccer_indices.max()={self.soccer_indices.max()} >= total_actors={expected_total_actors}")
+        
+        # 验证索引是否超出实际actor_root_state的范围
+        if self.robot_indices.max() >= actual_actor_count:
+            print(f"[DEBUG] ERROR: robot_indices.max()={self.robot_indices.max()} >= actual_actor_count={actual_actor_count}")
+        if self.soccer_indices.max() >= actual_actor_count:
+            print(f"[DEBUG] ERROR: soccer_indices.max()={self.soccer_indices.max()} >= actual_actor_count={actual_actor_count}")
+        
+        print(f"[DEBUG] Creating wrapper tensors...")
         # =============上面是机器人和足球的索引处理========================
         # create some wrapper tensors for different slices
         self.root_states = gymtorch.wrap_tensor(actor_root_state)
@@ -346,22 +463,52 @@ class T1(BaseTask):
 
     def reset(self):
         """Reset all robots"""
+        print(f"[DEBUG] *** STARTING RESET ***")
+        print(f"[DEBUG] Calling _reset_idx with torch.arange(self.num_envs={self.num_envs})")
+        
         self._reset_idx(torch.arange(self.num_envs, device=self.device))
         self._resample_commands()
         self._update_ball_observations()
         self._compute_observations()
+        
+        print(f"[DEBUG] *** RESET COMPLETED SUCCESSFULLY ***")
         return self.obs_buf, self.extras
 
     def _reset_idx(self, env_ids):
+        print(f"[DEBUG] _reset_idx called with env_ids.shape={env_ids.shape}, range=[{env_ids.min()}, {env_ids.max()}]")
+        
         if len(env_ids) == 0:
+            print(f"[DEBUG] _reset_idx: env_ids is empty, returning")
             return
 
+        # 添加边界检查
+        if env_ids.max() >= self.num_envs:
+            print(f"[DEBUG] WARNING: env_ids.max()={env_ids.max()} >= num_envs={self.num_envs}")
+            env_ids = env_ids[env_ids < self.num_envs]
+            if len(env_ids) == 0:
+                print(f"[DEBUG] _reset_idx: no valid env_ids after filtering, returning")
+                return
+
+        print(f"[DEBUG] _reset_idx: processing {len(env_ids)} environments")
+        print(f"[DEBUG] About to call _reset_root_states...")
+        
         self._update_curriculum(env_ids)
         self._reset_dofs(env_ids)
         self._reset_root_states(env_ids)
 
+        print(f"[DEBUG] _reset_root_states completed, setting up other buffers...")
+        
         self.last_dof_targets[env_ids] = self.dof_pos[env_ids]
-        self.last_root_vel[env_ids] = self.robot_root_states[env_ids, 7:13]
+        
+        # 确保robot_root_states的索引在有效范围内
+        if env_ids.max() >= self.robot_root_states.shape[0]:
+            print(f"[DEBUG] WARNING: env_ids.max()={env_ids.max()} >= robot_root_states.shape[0]={self.robot_root_states.shape[0]}")
+            valid_env_ids = env_ids[env_ids < self.robot_root_states.shape[0]]
+            if len(valid_env_ids) > 0:
+                self.last_root_vel[valid_env_ids] = self.robot_root_states[valid_env_ids, 7:13]
+        else:
+            self.last_root_vel[env_ids] = self.robot_root_states[env_ids, 7:13]
+            
         self.episode_length_buf[env_ids] = 0
         self.filtered_lin_vel[env_ids] = 0.0
         self.filtered_ang_vel[env_ids] = 0.0
@@ -369,6 +516,8 @@ class T1(BaseTask):
 
         self.delay_steps[env_ids] = torch.randint(0, self.cfg["control"]["decimation"], (len(env_ids),), device=self.device)
         self.extras["time_outs"] = self.time_out_buf
+        
+        print(f"[DEBUG] _reset_idx completed successfully")
 
     def _reset_dofs(self, env_ids):
         self.dof_pos[env_ids] = apply_randomization(self.default_dof_pos, self.cfg["randomization"].get("init_dof_pos"))
@@ -379,8 +528,69 @@ class T1(BaseTask):
         )
 
     def _reset_root_states(self, env_ids):
-        self.robot_actor_indices = self.robot_indices[env_ids]
-        self.root_states[self.robot_actor_indices] = self.base_init_state
+        print(f"[DEBUG] *** _reset_root_states ENTRY ***")
+        print(f"[DEBUG] Input env_ids: shape={env_ids.shape}, range=[{env_ids.min()}, {env_ids.max()}]")
+        print(f"[DEBUG] Input env_ids first 10: {env_ids[:10]}")
+        print(f"[DEBUG] self.num_envs = {self.num_envs}")
+        print(f"[DEBUG] self.robot_indices.shape = {self.robot_indices.shape}")
+        print(f"[DEBUG] self.soccer_indices.shape = {self.soccer_indices.shape}")
+        print(f"[DEBUG] self.root_states.shape = {self.root_states.shape}")
+        
+        # 添加边界检查，确保env_ids在有效范围内
+        if len(env_ids) == 0:
+            print(f"[DEBUG] _reset_root_states: env_ids is empty, returning")
+            return
+        
+        # 检查env_ids是否在有效范围内
+        valid_mask = (env_ids >= 0) & (env_ids < self.num_envs)
+        if not valid_mask.all():
+            print(f"[DEBUG] WARNING: Invalid env_ids detected. Max env_id: {env_ids.max()}, num_envs: {self.num_envs}")
+            invalid_ids = env_ids[~valid_mask]
+            print(f"[DEBUG] Invalid env_ids: {invalid_ids}")
+            env_ids = env_ids[valid_mask]
+            if len(env_ids) == 0:
+                print(f"[DEBUG] _reset_root_states: no valid env_ids after filtering, returning")
+                return
+        
+        # 确保索引在robot_indices范围内
+        if env_ids.max() >= len(self.robot_indices):
+            print(f"[DEBUG] ERROR: env_ids.max()={env_ids.max()}, robot_indices.len={len(self.robot_indices)}")
+            problematic_ids = env_ids[env_ids >= len(self.robot_indices)]
+            print(f"[DEBUG] Problematic env_ids: {problematic_ids}")
+            env_ids = env_ids[env_ids < len(self.robot_indices)]
+            if len(env_ids) == 0:
+                print(f"[DEBUG] _reset_root_states: no valid env_ids after robot_indices filtering, returning")
+                return
+        
+        print(f"[DEBUG] After validation, processing env_ids: shape={env_ids.shape}, range=[{env_ids.min()}, {env_ids.max()}]")
+        
+        # 关键步骤：计算robot_actor_indices
+        print(f"[DEBUG] Computing robot_actor_indices...")
+        print(f"[DEBUG] About to execute: self.robot_indices[env_ids]")
+        print(f"[DEBUG] robot_indices type: {type(self.robot_indices)}, shape: {self.robot_indices.shape}")
+        print(f"[DEBUG] env_ids type: {type(env_ids)}, shape: {env_ids.shape}")
+        
+        try:
+            self.robot_actor_indices = self.robot_indices[env_ids]
+            print(f"[DEBUG] SUCCESS: robot_actor_indices computed, shape={self.robot_actor_indices.shape}")
+            print(f"[DEBUG] robot_actor_indices range=[{self.robot_actor_indices.min()}, {self.robot_actor_indices.max()}]")
+            print(f"[DEBUG] robot_actor_indices first 10: {self.robot_actor_indices[:10]}")
+        except Exception as e:
+            print(f"[DEBUG] FATAL ERROR in robot_actor_indices computation: {e}")
+            print(f"[DEBUG] robot_indices: {self.robot_indices}")
+            print(f"[DEBUG] env_ids: {env_ids}")
+            raise e
+        
+        print(f"[DEBUG] Setting robot root states...")
+        try:
+            self.root_states[self.robot_actor_indices] = self.base_init_state
+            print(f"[DEBUG] SUCCESS: robot root states set")
+        except Exception as e:
+            print(f"[DEBUG] ERROR setting robot root states: {e}")
+            print(f"[DEBUG] robot_actor_indices max: {self.robot_actor_indices.max()}")
+            print(f"[DEBUG] root_states shape: {self.root_states.shape}")
+            raise e
+        
         self.root_states[self.robot_actor_indices, :2] += self.env_origins[env_ids, :2]
         self.root_states[self.robot_actor_indices, :2] = apply_randomization(self.root_states[self.robot_actor_indices, :2], self.cfg["randomization"].get("init_base_pos_xy"))
         self.root_states[self.robot_actor_indices, 2] += self.terrain.terrain_heights(self.root_states[self.robot_actor_indices, :2])
@@ -393,7 +603,22 @@ class T1(BaseTask):
             torch.zeros(len(env_ids), 2, dtype=torch.float, device=self.device),
             self.cfg["randomization"].get("init_base_lin_vel_xy"),
         )
-        self.soccer_actor_indices = self.soccer_indices[env_ids]
+        
+        print(f"[DEBUG] Robot states setup completed, now processing soccer actors...")
+        
+        # 检查soccer_indices的边界
+        if env_ids.max() >= len(self.soccer_indices):
+            print(f"[DEBUG] ERROR: env_ids.max()={env_ids.max()}, soccer_indices.len={len(self.soccer_indices)}")
+            return
+            
+        try:
+            self.soccer_actor_indices = self.soccer_indices[env_ids]
+            print(f"[DEBUG] SUCCESS: soccer_actor_indices computed, shape={self.soccer_actor_indices.shape}")
+            print(f"[DEBUG] soccer_actor_indices range=[{self.soccer_actor_indices.min()}, {self.soccer_actor_indices.max()}]")
+        except Exception as e:
+            print(f"[DEBUG] ERROR in soccer_actor_indices computation: {e}")
+            raise e
+        
         ball_position_model = 'random'
         ball_position_range = [[-6, 6], [-4.5, 4.5], [0.11, 0.11]]
         for i, env_id in enumerate(env_ids):
@@ -414,7 +639,16 @@ class T1(BaseTask):
             torch.zeros(len(env_ids), 2, dtype=torch.float, device=self.device),           #这里给了足球初速度，便于在不同情况下机器人的行走
             self.cfg["randomization"].get("init_base_lin_vel_xy"),
         )
-        self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))   #设置初始化的root_states
+        
+        print(f"[DEBUG] About to call gym.set_actor_root_state_tensor...")
+        try:
+            self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))   #设置初始化的root_states
+            print(f"[DEBUG] SUCCESS: gym.set_actor_root_state_tensor completed")
+        except Exception as e:
+            print(f"[DEBUG] ERROR in gym.set_actor_root_state_tensor: {e}")
+            raise e
+        
+        print(f"[DEBUG] *** _reset_root_states COMPLETED SUCCESSFULLY ***")
 
     def _teleport_robot(self):
         if self.terrain.type == "plane":
