@@ -142,17 +142,20 @@ class T1(BaseTask):
 
             "=======================下面处理足球======================="
             ball_pose = gymapi.Transform()
-            ball_pose.p = gymapi.Vec3(pos[0], pos[1], pos[2])
-            ball_handle = self.gym.create_actor(env_handle, ball_asset, ball_pose, "ball", i, 1, 0)
             ball_position_model='random'
             ball_position_range=[[-6,6],[-4.5,4.5],[0.11,0.11]]
-            try:
-                if ball_position_model == 'random':
-                    ball_pose.p.x =pos[0]+np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
-                    ball_pose.p.y = pos[1]+np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
-                    ball_pose.p.z = pos[2]+np.random.uniform(ball_position_range[2][0], ball_position_range[2][1])
-            except Exception as e:
-                print(f"Error occurred while setting ball position: {e}")
+            
+            # 直接设置足球的初始位置
+            if ball_position_model == 'random':
+                ball_pose.p.x = pos[0] + np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
+                ball_pose.p.y = pos[1] + np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
+                ball_pose.p.z = pos[2] + ball_position_range[2][0]
+            else:
+                ball_pose.p.x = pos[0]
+                ball_pose.p.y = pos[1]
+                ball_pose.p.z = pos[2] + 0.11
+            
+            # 只创建一次球actor
             ball_handle = self.gym.create_actor(env_handle, ball_asset, ball_pose, "ball", i, 1, 0)
             self.ball_handles.append(ball_handle)
             self.envs.append(env_handle)
