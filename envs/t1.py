@@ -518,17 +518,13 @@ class T1(BaseTask):
         out_y_min = self.robot_root_states[:, 1] < -0.75 * self.terrain.border_size
         out_y_max = self.robot_root_states[:, 1] > self.terrain.env_length + 0.75 * self.terrain.border_size
         
-        # 传送机器人
-        self.robot_root_states[out_x_min, 0] += self.terrain.env_width + self.terrain.border_size
-        self.robot_root_states[out_x_max, 0] -= self.terrain.env_width + self.terrain.border_size
-        self.robot_root_states[out_y_min, 1] += self.terrain.env_length + self.terrain.border_size
-        self.robot_root_states[out_y_max, 1] -= self.terrain.env_length + self.terrain.border_size
+        # 传送机器人（直接操作root_states避免复合索引问题）
+        self.root_states[self.robot_indices[out_x_min], 0] += self.terrain.env_width + self.terrain.border_size
+        self.root_states[self.robot_indices[out_x_max], 0] -= self.terrain.env_width + self.terrain.border_size
+        self.root_states[self.robot_indices[out_y_min], 1] += self.terrain.env_length + self.terrain.border_size
+        self.root_states[self.robot_indices[out_y_max], 1] -= self.terrain.env_length + self.terrain.border_size
         
-        # 更新机器人的身体状态
-        self.robot_body_states[out_x_min, :, 0] += self.terrain.env_width + self.terrain.border_size
-        self.robot_body_states[out_x_max, :, 0] -= self.terrain.env_width + self.terrain.border_size
-        self.robot_body_states[out_y_min, :, 1] += self.terrain.env_length + self.terrain.border_size
-        self.robot_body_states[out_y_max, :, 1] -= self.terrain.env_length + self.terrain.border_size
+        # body_states 会在设置 root_states 后自动更新，无需手动修改
         
         if out_x_min.any() or out_x_max.any() or out_y_min.any() or out_y_max.any():
             self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
@@ -678,9 +674,9 @@ class T1(BaseTask):
     def _kick_robots(self):
         """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
         if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
-            # 对机器人施加随机速度（现在robot_root_states是property，可以直接修改）
-            self.robot_root_states[:, 7:10] = apply_randomization(self.robot_root_states[:, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
-            self.robot_root_states[:, 10:13] = apply_randomization(self.robot_root_states[:, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
+            # 对机器人施加随机速度（直接操作root_states避免复合索引问题）
+            self.root_states[self.robot_indices, 7:10] = apply_randomization(self.root_states[self.robot_indices, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
+            self.root_states[self.robot_indices, 10:13] = apply_randomization(self.root_states[self.robot_indices, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
             self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
     def _push_robots(self):
