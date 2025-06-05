@@ -269,8 +269,10 @@ class T1(BaseTask):
         self.robot_root_states=self.root_states[self.robot_indices]
         self.soccer_root_states=self.root_states[self.soccer_indices]
         #============================cyz changed it================================
-        self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
-        self.body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
+        self.all_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
+        self.contact_forces=self.all_forces[:,:self.num_bodies,:]
+        self.all_body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
+        self.body_states=self.all_body_states[:,:self.num_bodies,:]
         self.base_pos = self.robot_root_states[:, 0:3]
         self.base_quat = self.robot_root_states[:, 3:7]
         self.feet_pos = self.body_states[:, self.feet_indices, 0:3]
