@@ -374,8 +374,9 @@ class T1(BaseTask):
         self.dof_pos[env_ids] = apply_randomization(self.default_dof_pos, self.cfg["randomization"].get("init_dof_pos"))
         self.dof_vel[env_ids] = 0.0
         env_ids_int32 = env_ids.to(dtype=torch.int32)
+        robot_indices = self.robot_indices[env_ids_int32].to(dtype=torch.int32)
         self.gym.set_dof_state_tensor_indexed(
-            self.sim, gymtorch.unwrap_tensor(self.dof_state), gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32)
+            self.sim, gymtorch.unwrap_tensor(self.dof_state), gymtorch.unwrap_tensor(robot_indices), len(robot_indices)
         )
 
     def _reset_root_states(self, env_ids):
@@ -667,11 +668,11 @@ class T1(BaseTask):
                 apply_randomization(self.dof_pos - self.default_dof_pos, self.cfg["noise"].get("dof_pos")) * self.cfg["normalization"]["dof_pos"],
                 apply_randomization(self.dof_vel, self.cfg["noise"].get("dof_vel")) * self.cfg["normalization"]["dof_vel"],
                 self.actions,        # 足球相关观察 (13维)
-                self.ball_local_position * 0.5,  # 3维，球相对位置，缩放因子0.5
-                self.ball_local_velocity * 0.2,  # 3维，球相对速度，缩放因子0.2
+                self.ball_local_position ,  # 3维，球相对位置，
+                self.ball_local_velocity ,  # 3维，
                 self.goal_dir_relative,  # 3维，球门方向（单位向量）
                 self.heading_angle,  # 1维，朝向角度
-                self.ball_to_goal_vec * 0.1,  # 3维，球到球门向量，缩放因子0.1
+                self.ball_to_goal_vec ,  # 3维，球到球门向量
             ),
             dim=-1,
         )
@@ -688,6 +689,7 @@ class T1(BaseTask):
             dim=-1,
         )
         self.extras["privileged_obs"] = self.privileged_obs_buf
+        print(f"self.ball_position: {self.ball_position}")
 
     # ------------ reward functions----------------
     def _reward_survival(self):

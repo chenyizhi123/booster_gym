@@ -98,121 +98,139 @@ class Runner:
 
     def train(self):
         self.recorder = Recorder(self.cfg)
+        print("\n🚀 开始训练...")
+        print(f"📈 要查看训练进度，请打开新终端并运行:")
+        print(f"   tensorboard --logdir=logs")
+        print(f"   然后在浏览器中打开: http://localhost:6006")
+        print("-" * 60)
+        
         obs, infos = self.env.reset()
         obs = obs.to(self.device)
         privileged_obs = infos["privileged_obs"].to(self.device)
-        for it in range(self.cfg["basic"]["max_iterations"]):
-            # within horizon_length, env.step() is called with same act
-            for n in range(self.cfg["runner"]["horizon_length"]):
-                self.buffer.update_data("obses", n, obs)
-                self.buffer.update_data("privileged_obses", n, privileged_obs)
-                with torch.no_grad():
-                    dist = self.model.act(obs)
-                    act = dist.sample()
-                obs, rew, done, infos = self.env.step(act)
-                obs, rew, done = obs.to(self.device), rew.to(self.device), done.to(self.device)
-                privileged_obs = infos["privileged_obs"].to(self.device)
-                self.buffer.update_data("actions", n, act)
-                self.buffer.update_data("rewards", n, rew)
-                self.buffer.update_data("dones", n, done)
-                self.buffer.update_data("time_outs", n, infos["time_outs"].to(self.device))
-                ep_info = {"reward": rew}
-                ep_info.update(infos["rew_terms"])
-                self.recorder.record_episode_statistics(done, ep_info, it, n == (self.cfg["runner"]["horizon_length"] - 1))
+        
+        try:
+            for it in range(self.cfg["basic"]["max_iterations"]):
+                # within horizon_length, env.step() is called with same act
+                for n in range(self.cfg["runner"]["horizon_length"]):
+                    self.buffer.update_data("obses", n, obs)
+                    self.buffer.update_data("privileged_obses", n, privileged_obs)
+                    with torch.no_grad():
+                        dist = self.model.act(obs)
+                        act = dist.sample()
+                    obs, rew, done, infos = self.env.step(act)
+                    obs, rew, done = obs.to(self.device), rew.to(self.device), done.to(self.device)
+                    print(f"第{it}次训练，第{n}步，dones的情况: {done}")
+                    privileged_obs = infos["privileged_obs"].to(self.device)
+                    self.buffer.update_data("actions", n, act)
+                    self.buffer.update_data("rewards", n, rew)
+                    self.buffer.update_data("dones", n, done)
+                    self.buffer.update_data("time_outs", n, infos["time_outs"].to(self.device))
+                    ep_info = {"reward": rew}
+                    ep_info.update(infos["rew_terms"])
+                    self.recorder.record_episode_statistics(done, ep_info, it, n == (self.cfg["runner"]["horizon_length"] - 1))
 
-            with torch.no_grad():
-                old_dist = self.model.act(self.buffer["obses"])
-                old_actions_log_prob = old_dist.log_prob(self.buffer["actions"]).sum(dim=-1)
-
-            mean_value_loss = 0
-            mean_actor_loss = 0
-            mean_bound_loss = 0
-            mean_entropy = 0
-            for n in range(self.cfg["runner"]["mini_epochs"]):
-                values = self.model.est_value(self.buffer["obses"], self.buffer["privileged_obses"])
-                last_values = self.model.est_value(obs, privileged_obs)
                 with torch.no_grad():
-                    self.buffer["rewards"][self.buffer["time_outs"]] = values[self.buffer["time_outs"]]
-                    advantages = discount_values(
-                        self.buffer["rewards"],
-                        self.buffer["dones"] | self.buffer["time_outs"],
-                        values,
-                        last_values,
-                        self.cfg["algorithm"]["gamma"],
-                        self.cfg["algorithm"]["lam"],
+                    old_dist = self.model.act(self.buffer["obses"])
+                    old_actions_log_prob = old_dist.log_prob(self.buffer["actions"]).sum(dim=-1)
+
+                mean_value_loss = 0
+                mean_actor_loss = 0
+                mean_bound_loss = 0
+                mean_entropy = 0
+                for n in range(self.cfg["runner"]["mini_epochs"]):
+                    values = self.model.est_value(self.buffer["obses"], self.buffer["privileged_obses"])
+                    last_values = self.model.est_value(obs, privileged_obs)
+                    with torch.no_grad():
+                        self.buffer["rewards"][self.buffer["time_outs"]] = values[self.buffer["time_outs"]]
+                        advantages = discount_values(
+                            self.buffer["rewards"],
+                            self.buffer["dones"] | self.buffer["time_outs"],
+                            values,
+                            last_values,
+                            self.cfg["algorithm"]["gamma"],
+                            self.cfg["algorithm"]["lam"],
+                        )
+                        returns = values + advantages
+                        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+                    value_loss = F.mse_loss(values, returns)
+
+                    dist = self.model.act(self.buffer["obses"])
+                    actions_log_prob = dist.log_prob(self.buffer["actions"]).sum(dim=-1)
+                    actor_loss = surrogate_loss(old_actions_log_prob, actions_log_prob, advantages)
+
+                    bound_loss = torch.clip(dist.loc - 1.0, min=0.0).square().mean() + torch.clip(dist.loc + 1.0, max=0.0).square().mean()
+
+                    entropy = dist.entropy().sum(dim=-1)
+
+                    loss = (
+                        value_loss
+                        + actor_loss
+                        + self.cfg["algorithm"]["bound_coef"] * bound_loss
+                        + self.cfg["algorithm"]["entropy_coef"] * entropy.mean()
                     )
-                    returns = values + advantages
-                    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-                value_loss = F.mse_loss(values, returns)
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                    self.optimizer.step()
 
-                dist = self.model.act(self.buffer["obses"])
-                actions_log_prob = dist.log_prob(self.buffer["actions"]).sum(dim=-1)
-                actor_loss = surrogate_loss(old_actions_log_prob, actions_log_prob, advantages)
+                    with torch.no_grad():
+                        kl = torch.sum(
+                            torch.log(dist.scale / old_dist.scale)
+                            + 0.5 * (torch.square(old_dist.scale) + torch.square(dist.loc - old_dist.loc)) / torch.square(dist.scale)
+                            - 0.5,
+                            axis=-1,
+                        )
+                        kl_mean = torch.mean(kl)
+                        if kl_mean > self.cfg["algorithm"]["desired_kl"] * 2:
+                            self.learning_rate = max(1e-5, self.learning_rate / 1.5)
+                        elif kl_mean < self.cfg["algorithm"]["desired_kl"] / 2:
+                            self.learning_rate = min(1e-2, self.learning_rate * 1.5)
+                        for param_group in self.optimizer.param_groups:
+                            param_group["lr"] = self.learning_rate
 
-                bound_loss = torch.clip(dist.loc - 1.0, min=0.0).square().mean() + torch.clip(dist.loc + 1.0, max=0.0).square().mean()
-
-                entropy = dist.entropy().sum(dim=-1)
-
-                loss = (
-                    value_loss
-                    + actor_loss
-                    + self.cfg["algorithm"]["bound_coef"] * bound_loss
-                    + self.cfg["algorithm"]["entropy_coef"] * entropy.mean()
-                )
-                self.optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                self.optimizer.step()
-
-                with torch.no_grad():
-                    kl = torch.sum(
-                        torch.log(dist.scale / old_dist.scale)
-                        + 0.5 * (torch.square(old_dist.scale) + torch.square(dist.loc - old_dist.loc)) / torch.square(dist.scale)
-                        - 0.5,
-                        axis=-1,
-                    )
-                    kl_mean = torch.mean(kl)
-                    if kl_mean > self.cfg["algorithm"]["desired_kl"] * 2:
-                        self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                    elif kl_mean < self.cfg["algorithm"]["desired_kl"] / 2:
-                        self.learning_rate = min(1e-2, self.learning_rate * 1.5)
-                    for param_group in self.optimizer.param_groups:
-                        param_group["lr"] = self.learning_rate
-
-                mean_value_loss += value_loss.item()
-                mean_actor_loss += actor_loss.item()
-                mean_bound_loss += bound_loss.item()
-                mean_entropy += entropy.mean()
-            mean_value_loss /= self.cfg["runner"]["mini_epochs"]
-            mean_actor_loss /= self.cfg["runner"]["mini_epochs"]
-            mean_bound_loss /= self.cfg["runner"]["mini_epochs"]
-            mean_entropy /= self.cfg["runner"]["mini_epochs"]
-            self.recorder.record_statistics(
-                {
-                    "value_loss": mean_value_loss,
-                    "actor_loss": mean_actor_loss,
-                    "bound_loss": mean_bound_loss,
-                    "entropy": mean_entropy,
-                    "kl_mean": kl_mean,
-                    "lr": self.learning_rate,
-                    "curriculum/mean_lin_vel_level": self.env.mean_lin_vel_level,
-                    "curriculum/mean_ang_vel_level": self.env.mean_ang_vel_level,
-                    "curriculum/max_lin_vel_level": self.env.max_lin_vel_level,
-                    "curriculum/max_ang_vel_level": self.env.max_ang_vel_level,
-                },
-                it,
-            )
-
-            if (it + 1) % self.cfg["runner"]["save_interval"] == 0:
-                self.recorder.save(
+                    mean_value_loss += value_loss.item()
+                    mean_actor_loss += actor_loss.item()
+                    mean_bound_loss += bound_loss.item()
+                    mean_entropy += entropy.mean()
+                mean_value_loss /= self.cfg["runner"]["mini_epochs"]
+                mean_actor_loss /= self.cfg["runner"]["mini_epochs"]
+                mean_bound_loss /= self.cfg["runner"]["mini_epochs"]
+                mean_entropy /= self.cfg["runner"]["mini_epochs"]
+                self.recorder.record_statistics(
                     {
-                        "model": self.model.state_dict(),
-                        "optimizer": self.optimizer.state_dict(),
-                        "curriculum": self.env.curriculum_prob,
+                        "value_loss": mean_value_loss,
+                        "actor_loss": mean_actor_loss,
+                        "bound_loss": mean_bound_loss,
+                        "entropy": mean_entropy,
+                        "kl_mean": kl_mean,
+                        "lr": self.learning_rate,
+                        "curriculum/mean_lin_vel_level": self.env.mean_lin_vel_level,
+                        "curriculum/mean_ang_vel_level": self.env.mean_ang_vel_level,
+                        "curriculum/max_lin_vel_level": self.env.max_lin_vel_level,
+                        "curriculum/max_ang_vel_level": self.env.max_ang_vel_level,
                     },
-                    it + 1,
+                    it,
                 )
-            print("epoch: {}/{}".format(it + 1, self.cfg["basic"]["max_iterations"]))
+
+                if (it + 1) % self.cfg["runner"]["save_interval"] == 0:
+                    self.recorder.save(
+                        {
+                            "model": self.model.state_dict(),
+                            "optimizer": self.optimizer.state_dict(),
+                            "curriculum": self.env.curriculum_prob,
+                        },
+                        it + 1,
+                    )
+                print("📊 训练进度: {}/{} | TensorBoard: http://localhost:6006".format(it + 1, self.cfg["basic"]["max_iterations"]))
+                
+        except KeyboardInterrupt:
+            print("\n⏹️  训练被用户中断")
+        except Exception as e:
+            print(f"\n❌ 训练出错: {e}")
+        finally:
+            # 确保关闭tensorboard
+            self.recorder.close()
+            print("✅ 训练结束")
 
     def play(self):
         obs, infos = self.env.reset()

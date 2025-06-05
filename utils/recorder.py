@@ -2,7 +2,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 import os
 import time
-import wandb
 import yaml
 
 
@@ -15,15 +14,11 @@ class Recorder:
         os.makedirs(self.dir)
         self.model_dir = os.path.join(self.dir, "nn")
         os.mkdir(self.model_dir)
+        
+        # 只使用tensorboard
         self.writer = SummaryWriter(os.path.join(self.dir, "summaries"))
-        if self.cfg["runner"]["use_wandb"]:
-            wandb.init(
-                project=self.cfg["basic"]["task"],
-                dir=self.dir,
-                name=name,
-                notes=self.cfg["basic"]["description"],
-                config=self.cfg,
-            )
+        print(f"📊 TensorBoard日志保存到: {os.path.join(self.dir, 'summaries')}")
+        print(f"💾 模型文件保存到: {self.model_dir}")
 
         self.episode_statistics = {}
         self.last_episode = {}
@@ -57,19 +52,15 @@ class Recorder:
                 path = ("" if key == "steps" or key == "reward" else "episode/") + key
                 value = self._mean(self.last_episode[key])
                 self.writer.add_scalar(path, value, it)
-                if self.cfg["runner"]["use_wandb"]:
-                    wandb.log({path: value}, step=it)
                 self.last_episode[key].clear()
 
     def record_statistics(self, statistics, it):
         for key, value in statistics.items():
             self.writer.add_scalar(key, float(value), it)
-            if self.cfg["runner"]["use_wandb"]:
-                wandb.log({key: float(value)}, step=it)
 
     def save(self, model_dict, it):
         path = os.path.join(self.model_dir, "model_{}.pth".format(it))
-        print("Saving model to {}".format(path))
+        print("💾 保存模型到: {}".format(path))
         torch.save(model_dict, path)
 
     def _mean(self, data):
@@ -77,3 +68,8 @@ class Recorder:
             return 0.0
         else:
             return sum(data) / len(data)
+
+    def close(self):
+        """关闭tensorboard writer"""
+        self.writer.close()
+        print("📊 TensorBoard日志已关闭")
