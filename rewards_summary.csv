@@ -1,0 +1,35 @@
+Category,Reward Term,Purpose,Weight
+--- 基础与移动 ---,,
+,`_reward_survival`,"鼓励机器人存活更长时间，是基础的正向奖励",1.0
+,`_reward_tracking_lin_vel_x`,"鼓励机器人跟踪X轴（前后）的线速度指令",0.5
+,`_reward_tracking_lin_vel_y`,"鼓励机器人跟踪Y轴（左右）的线速度指令",0.5
+,`_reward_tracking_ang_vel`,"鼓励机器人跟踪Z轴（转向）的角速度指令",0.25
+,`_reward_feet_swing`,"奖励足部在摆动阶段成功抬起且未触地（正确行走）",1.5
+--- 姿态与稳定性惩罚 ---,,
+,`_reward_base_height`,"惩罚机器人基座高度偏离目标高度",-10.0
+,`_reward_orientation`,"惩罚机器人基座倾斜，鼓励保持身体平稳",-2.0
+,`_reward_lin_vel_z`,"惩罚Z轴（垂直方向）的线速度，避免上下跳动",-1.0
+,`_reward_ang_vel_xy`,"惩罚XY轴（翻滚和俯仰）的角速度，避免摔倒",-0.1
+,`_reward_collision`,"惩罚身体特定部位发生碰撞",-0.5
+--- 节能与平滑性惩罚 ---,,
+,`_reward_torques`,"惩罚过大的关节扭矩，鼓励节能",-0.0001
+,`_reward_torque_tiredness`,"惩罚持续的大扭矩输出，模拟肌肉疲劳",-0.005
+,`_reward_power`,"惩罚过高的瞬时功率消耗",-0.001
+,`_reward_dof_vel`,"惩罚过快的关节速度，鼓励平滑运动",-0.00005
+,`_reward_dof_acc`,"惩罚过大的关节加速度，鼓励更平滑的运动",-0.00000005
+,`_reward_root_acc`,"惩罚机器人基座的加速度，鼓励稳定移动",-0.00005
+,`_reward_action_rate`,"惩罚动作指令的剧烈变化，鼓励平滑控制",-0.5
+--- 足部控制惩罚 ---,,
+,`_reward_feet_slip`,"惩罚足部在接触地面时的滑动",-0.05
+,`_reward_feet_roll`,"惩罚足部的翻滚，鼓励脚底平踩地面",-0.05
+,`_reward_feet_yaw_diff`,"惩罚左右脚偏航角度的差异，鼓励双脚朝向一致",-0.5
+,`_reward_feet_yaw_mean`,"惩罚双脚平均朝向与身体朝向的差异",-0.5
+,`_reward_feet_distance`,"惩罚双脚间距不合理",-0.5
+--- 极限与安全惩罚 ---,,
+,`_reward_dof_pos_limits`,"惩罚关节位置接近或超出其物理极限",-0.5
+,`_reward_dof_vel_limits`,"惩罚关节速度接近或超出其物理极限（当前权重为0）",0.0
+,`_reward_torque_limits`,"惩罚关节扭矩接近或超出其物理极限（当前权重为0）",0.0
+,`_reward_feet_vel_z`,"惩罚足部在Z轴上的速度（未使用，权重为0）",0.0
+--- 足球相关奖励 ---,,
+,`_reward_approach_ball`,"鼓励机器人接近足球，距离越近奖励越高",1.0
+,`_reward_ball_goal_alignment`,"鼓励机器人、球、球门三点共线且机器人位于球后方",0.8 

@@ -21,7 +21,7 @@ from .base_task import BaseTask
 from utils.utils import apply_randomization
 
 
-class T1(BaseTask):
+class approach(BaseTask):
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -822,6 +822,48 @@ class T1(BaseTask):
         right_swing = (torch.abs(self.gait_process - 0.75) < 0.5 * self.cfg["rewards"]["swing_period"]) & (self.gait_frequency > 1.0e-8)
         return (left_swing & ~self.feet_contact[:, 0]).float() + (right_swing & ~self.feet_contact[:, 1]).float()
 
+    def _reward_approach_ball(self):
+        """靠近球的奖励 - 鼓励机器人接近足球"""
+        # 计算机器人到球的距离（使用局部坐标系中的位置，只考虑x,y水平距离）
+        dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
+        # 使用高斯函数将距离转换为奖励，距离越近奖励越高
+        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.5)  # 可在yaml中配置
+        # 最大奖励为1.0，随距离增加呈指数衰减
+        return torch.exp(-torch.square(dist_to_ball) / approach_sigma)
+    
+    def _reward_ball_goal_alignment(self):
+        """球门对准奖励 - 鼓励机器人、球、球门三点共线，且机器人位于球的后方"""
+        
+        # 向量 v₁: 机器人指向球（在机器人局部坐标系中，只考虑x,y）
+        v1 = self.ball_local_position[:, :2]  # shape: (num_envs, 2) 只取x,y
+        
+        # 向量 v₂: 球指向球门（需要转换到机器人局部坐标系，只考虑x,y）
+        ball_to_goal_world = self.ball_to_goal_vec  # 世界坐标系中球到球门的向量
+        v2_3d = quat_rotate_inverse(self.base_quat, ball_to_goal_world)  # 转换到机器人坐标系
+        v2 = v2_3d[:, :2]  # shape: (num_envs, 2) 只取x,y
+        
+        # 计算向量的模长（在水平面上）
+        v1_norm = torch.norm(v1, dim=1, keepdim=True) + 1e-8  # 防止除零
+        v2_norm = torch.norm(v2, dim=1, keepdim=True) + 1e-8
+        
+        # 计算余弦相似度: cos(θ) = (v₁ · v₂) / (|v₁| × |v₂|)
+        dot_product = torch.sum(v1 * v2, dim=1)  # 点积（只在x,y平面）
+        cos_theta = dot_product / (v1_norm.squeeze() * v2_norm.squeeze())
+        
+        # 只有当 cos(θ) > 0 时才给奖励（角度 < 90°）
+        # 使用 ReLU 确保负值为0，正值保持不变
+        alignment_reward = torch.clamp(cos_theta, min=0.0)
+        
+        # 距离调制项：距离球太远时降低奖励（只考虑水平距离）
+        dist_to_ball = torch.norm(v1, dim=1)
+        # 距离调制因子，在合理距离内（比如2米内）给予满奖励，超出后指数衰减
+        max_effective_distance = self.cfg["rewards"].get("alignment_max_distance", 2.0)
+        distance_modulation = torch.exp(-torch.clamp(dist_to_ball - max_effective_distance, min=0.0))
+        
+        # 最终奖励 = 对准奖励 × 距离调制
+        final_reward = alignment_reward * distance_modulation
+        
+        return final_reward
     def _update_ball_observations(self):
         """更新足球相关的观察变量"""
         # 更新足球状态（从仿真中获取最新值）
@@ -863,3 +905,4 @@ class T1(BaseTask):
         cos_angle = torch.sum(robot_forward_world * goal_dir_world, dim=1)
         cos_angle = torch.clamp(cos_angle, -1.0, 1.0)  # 防止数值误差
         self.heading_angle[:] = torch.acos(cos_angle).unsqueeze(1)
+    
