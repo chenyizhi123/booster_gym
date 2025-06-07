@@ -309,6 +309,20 @@ class approach(BaseTask):
         self.mean_ang_vel_level = 0.0
         self.max_lin_vel_level = 0.0
         self.max_ang_vel_level = 0.0
+        
+        # ===== 球课程学习相关变量 =====
+        # 球距离课程等级：0=近距离，1=中距离，2=远距离
+        self.ball_curriculum_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        # 每个等级的成功次数计数
+        self.ball_curriculum_success_count = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        # 课程学习配置
+        self.ball_curriculum_config = {
+            0: {"min_dist": 0.5, "max_dist": 1.5, "success_threshold": 5},  # 近距离
+            1: {"min_dist": 1.5, "max_dist": 3.5, "success_threshold": 8},  # 中距离  
+            2: {"min_dist": 3.5, "max_dist": 6.0, "success_threshold": 10}  # 远距离
+        }
+        # =======================================
+        
         self.pushing_forces = torch.zeros(self.num_envs, self.num_bodies+1, 3, dtype=torch.float, device=self.device)
         self.pushing_torques = torch.zeros(self.num_envs, self.num_bodies+1, 3, dtype=torch.float, device=self.device)
         self.feet_roll = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.float, device=self.device)
@@ -325,6 +339,14 @@ class approach(BaseTask):
                     found = True
             if not found:
                 self.default_dof_pos[:, i] = self.cfg["init_state"]["default_joint_angles"]["default"]
+
+        # ===== 任务成功判断相关变量 =====
+        # 任务成功标志：True表示本episode成功完成任务
+        self.task_success = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        # 成功条件配置
+        self.success_distance_threshold = 0.1  # 机器人到球的距离阈值(米)
+        self.success_angle_threshold = 5.0   # 机器人-球-球门角度阈值(度)
+        # ===========================================
 
     def _prepare_reward_function(self):
         """Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -349,7 +371,8 @@ class approach(BaseTask):
     def reset(self):
         """Reset all robots"""
         self._reset_idx(torch.arange(self.num_envs, device=self.device))
-        self._resample_commands()
+        # self._resample_commands()  # 注释掉：使用零速度指令
+        self.commands[:] = 0.0  # 设置所有速度指令为零，让机器人完全自主
         self._update_ball_observations()
         self._compute_observations()
         return self.obs_buf, self.extras
@@ -359,6 +382,9 @@ class approach(BaseTask):
             return
 
         self._update_curriculum(env_ids)
+        # ===== 更新球课程学习 =====
+        self._update_ball_curriculum(env_ids)
+        # ==========================
         self._reset_dofs(env_ids)
         self._reset_root_states(env_ids)
 
@@ -397,26 +423,36 @@ class approach(BaseTask):
             self.cfg["randomization"].get("init_base_lin_vel_xy"),
         )
         self.soccer_actor_indices = self.soccer_indices[env_ids]
-        ball_position_model = 'random'
-        ball_position_range = [[-6, 6], [-4.5, 4.5], [0.11, 0.11]]
+        
+        # ===== 基于课程学习的球位置设置 =====
         for i, env_id in enumerate(env_ids):
             soccer_idx = self.soccer_actor_indices[i]
-            if ball_position_model == 'random':
-                self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0] + np.random.uniform(ball_position_range[0][0], ball_position_range[0][1])
-                self.root_states[soccer_idx, 1] = self.env_origins[env_id, 1] + np.random.uniform(ball_position_range[1][0], ball_position_range[1][1])
-                self.root_states[soccer_idx, 2] = self.env_origins[env_id, 2] + ball_position_range[2][0]
-            else:
-                # 默认位置：在环境中心
-                self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0]
-                self.root_states[soccer_idx, 1] = self.env_origins[env_id, 1]
-                self.root_states[soccer_idx, 2] = self.env_origins[env_id, 2] + 0.11
-                # 重置足球的速度和旋转
+            
+            # 获取当前环境的课程等级
+            curriculum_level = self.ball_curriculum_level[env_id].item()
+            config = self.ball_curriculum_config[curriculum_level]
+            
+            # 根据课程等级生成球的位置
+            # 在指定距离范围内随机生成角度和距离
+            angle = np.random.uniform(0, 2 * np.pi)  # 随机角度
+            distance = np.random.uniform(config["min_dist"], config["max_dist"])  # 根据课程等级的距离
+            
+            # 将极坐标转换为笛卡尔坐标
+            ball_x_offset = distance * np.cos(angle)
+            ball_y_offset = distance * np.sin(angle)
+            
+            # 确保球不会超出有效活动区域边界
+            ball_x_offset = np.clip(ball_x_offset, -5.5, 5.5)  # 留0.5米安全边距
+            ball_y_offset = np.clip(ball_y_offset, -4.0, 4.0)  # 留0.5米安全边距
+            
+            # 设置球的最终位置
+            self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0] + ball_x_offset
+            self.root_states[soccer_idx, 1] = self.env_origins[env_id, 1] + ball_y_offset
+            self.root_states[soccer_idx, 2] = self.env_origins[env_id, 2] + 0.11  # 球的高度
+        # =========================================
+        
+        # 重置足球的速度和旋转
         self.root_states[self.soccer_actor_indices, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)  # 单位四元数
-        self.root_states[self.soccer_actor_indices, 7:13] = 0.0  # 线速度和角速度归零
-        self.root_states[self.soccer_actor_indices, 7:9] = apply_randomization(
-            torch.zeros(len(env_ids), 2, dtype=torch.float, device=self.device),           #这里给了足球初速度，便于在不同情况下机器人的行走
-            self.cfg["randomization"].get("init_base_lin_vel_xy"),
-        )
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))   #设置初始化的root_states
 
     def _teleport_robot(self):
@@ -561,15 +597,15 @@ class approach(BaseTask):
         self.common_step_counter += 1
         self.gait_process[:] = torch.fmod(self.gait_process + self.dt * self.gait_frequency, 1.0)
 
-        self._kick_robots()
-        self._push_robots()
+        # self._kick_robots()
+        # self._push_robots()
         self._check_termination()
         self._compute_reward()
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self._reset_idx(env_ids)
         self._teleport_robot()
-        self._resample_commands()
+        # self._resample_commands()  # 注释掉：让机器人完全自主移动，不接收外部速度指令
 
         self._update_ball_observations()
         self._compute_observations()
@@ -581,35 +617,35 @@ class approach(BaseTask):
 
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
-    def _kick_robots(self):
-        """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
-        if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
-            self.root_states[self.robot_indices, 7:10] = apply_randomization(self.root_states[self.robot_indices, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
-            self.root_states[self.robot_indices, 10:13] = apply_randomization(self.root_states[self.robot_indices, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
-            self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
+    # def _kick_robots(self):
+    #     """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
+    #     if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
+    #         self.root_states[self.robot_indices, 7:10] = apply_randomization(self.root_states[self.robot_indices, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
+    #         self.root_states[self.robot_indices, 10:13] = apply_randomization(self.root_states[self.robot_indices, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
+    #         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
-    def _push_robots(self):
-        """Random push the robots. Emulates an impulse by setting a randomized force."""
-        if self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == 0:
-            self.pushing_forces[:, self.base_indice, :] = apply_randomization(
-                torch.zeros_like(self.pushing_forces[:, 0, :]),
-                self.cfg["randomization"].get("push_force"),
-            )
-            self.pushing_torques[:, self.base_indice, :] = apply_randomization(
-                torch.zeros_like(self.pushing_torques[:, 0, :]),
-                self.cfg["randomization"].get("push_torque"),
-            )
-        elif self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == np.ceil(
-            self.cfg["randomization"]["push_duration_s"] / self.dt
-        ):
-            self.pushing_forces[:, self.base_indice, :].zero_()
-            self.pushing_torques[:, self.base_indice, :].zero_()
-        self.gym.apply_rigid_body_force_tensors(
-            self.sim,
-            gymtorch.unwrap_tensor(self.pushing_forces),
-            gymtorch.unwrap_tensor(self.pushing_torques),
-            gymapi.LOCAL_SPACE,
-        )
+    # def _push_robots(self):
+    #     """Random push the robots. Emulates an impulse by setting a randomized force."""
+    #     if self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == 0:
+    #         self.pushing_forces[:, self.base_indice, :] = apply_randomization(
+    #             torch.zeros_like(self.pushing_forces[:, 0, :]),
+    #             self.cfg["randomization"].get("push_force"),
+    #         )
+    #         self.pushing_torques[:, self.base_indice, :] = apply_randomization(
+    #             torch.zeros_like(self.pushing_torques[:, 0, :]),
+    #             self.cfg["randomization"].get("push_torque"),
+    #         )
+    #     elif self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == np.ceil(
+    #         self.cfg["randomization"]["push_duration_s"] / self.dt
+    #     ):
+    #         self.pushing_forces[:, self.base_indice, :].zero_()
+    #         self.pushing_torques[:, self.base_indice, :].zero_()
+    #     self.gym.apply_rigid_body_force_tensors(
+    #         self.sim,
+    #         gymtorch.unwrap_tensor(self.pushing_forces),
+    #         gymtorch.unwrap_tensor(self.pushing_torques),
+    #         gymapi.LOCAL_SPACE,
+    #     )
 
     def _refresh_feet_state(self):
         self.feet_pos[:] = self.body_states[:, self.feet_indices, 0:3]
@@ -638,6 +674,50 @@ class approach(BaseTask):
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1.0, dim=1)
         self.reset_buf |= self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
         self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
+        
+        # ===== 任务成功检查 =====
+        # 1. 计算机器人到球的距离（水平面距离）
+        dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
+        
+        # 2. 计算机器人-球-球门的角度
+        # 机器人到球的向量（局部坐标系，水平面）
+        robot_to_ball = self.ball_local_position[:, :2]
+        # 球到球门的向量（转换到机器人局部坐标系，水平面）
+        ball_to_goal_local = quat_rotate_inverse(self.base_quat, self.ball_to_goal_vec)[:, :2]
+        
+        # 计算两向量夹角（度）
+        robot_to_ball_norm = torch.norm(robot_to_ball, dim=1) + 1e-8
+        ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1) + 1e-8
+        cos_angle = torch.sum(robot_to_ball * ball_to_goal_local, dim=1) / (robot_to_ball_norm * ball_to_goal_norm)
+        cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
+        angle_deg = torch.acos(cos_angle) * 180.0 / 3.14159
+        
+        # 3. 判断任务成功条件
+        success_condition = (dist_to_ball < self.success_distance_threshold) & (angle_deg < self.success_angle_threshold)
+        self.task_success[:] = success_condition
+        
+        # 4. 成功时也触发重置
+        self.reset_buf |= success_condition
+        # ========================
+        
+        # ===== 球出界终止条件 =====
+        # 检查球是否超出有效活动区域 [-6, 6] x [-4.5, 4.5]
+        ball_world_pos = self.soccer_root_states[:, 0:3]  # 球的世界坐标位置
+        # 计算球相对于环境原点的位置
+        ball_relative_pos = ball_world_pos - self.env_origins
+        
+        # 检查球是否超出边界
+        ball_out_of_bounds = (
+            (ball_relative_pos[:, 0] < -6.0) |  # X轴负边界
+            (ball_relative_pos[:, 0] > 6.0) |   # X轴正边界
+            (ball_relative_pos[:, 1] < -4.5) |  # Y轴负边界
+            (ball_relative_pos[:, 1] > 4.5)     # Y轴正边界
+        )
+        
+        # 球出界时触发重置
+        self.reset_buf |= ball_out_of_bounds
+        # ==============================
+        
         self.time_out_buf = self.episode_length_buf > np.ceil(self.cfg["rewards"]["episode_length_s"] / self.dt)
         self.reset_buf |= self.time_out_buf
         self.time_out_buf |= self.episode_length_buf == self.cmd_resample_time
@@ -864,6 +944,45 @@ class approach(BaseTask):
         final_reward = alignment_reward * distance_modulation
         
         return final_reward
+
+    def _update_ball_curriculum(self, env_ids):
+        """更新球课程学习进度 - 向量化版本，高性能"""
+        if len(env_ids) == 0:
+            return
+        
+        # ===== 向量化操作：成功计数更新 =====
+        # 对成功的环境增加计数（向量化）
+        success_mask = self.task_success[env_ids]
+        self.ball_curriculum_success_count[env_ids] += success_mask.long()
+        
+        # ===== 创建成功阈值张量 =====
+        # 为每个环境当前等级创建对应的成功阈值
+        current_levels = self.ball_curriculum_level[env_ids]
+        success_thresholds = torch.zeros_like(current_levels, dtype=torch.long, device=self.device)
+        
+        # 向量化设置阈值
+        for level, config in self.ball_curriculum_config.items():
+            level_mask = (current_levels == level)
+            success_thresholds[level_mask] = config["success_threshold"]
+        
+        # ===== 向量化检查升级条件 =====
+        # 找出达到升级条件且不在最高等级的环境
+        upgrade_mask = (
+            (self.ball_curriculum_success_count[env_ids] >= success_thresholds) &
+            (current_levels < len(self.ball_curriculum_config) - 1)
+        )
+        
+        # ===== 向量化执行升级 =====
+        if upgrade_mask.any():
+            # 升级等级
+            self.ball_curriculum_level[env_ids[upgrade_mask]] += 1
+            # 重置成功计数
+            self.ball_curriculum_success_count[env_ids[upgrade_mask]] = 0
+        
+        
+        # ===== 向量化重置任务成功标志 =====
+        self.task_success[env_ids] = False
+    
     def _update_ball_observations(self):
         """更新足球相关的观察变量"""
         # 更新足球状态（从仿真中获取最新值）
