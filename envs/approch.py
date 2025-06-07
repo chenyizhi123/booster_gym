@@ -317,9 +317,9 @@ class approach(BaseTask):
         self.ball_curriculum_success_count = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         # 课程学习配置
         self.ball_curriculum_config = {
-            0: {"min_dist": 0.5, "max_dist": 1.5, "success_threshold": 5},  # 近距离
-            1: {"min_dist": 1.5, "max_dist": 3.5, "success_threshold": 8},  # 中距离  
-            2: {"min_dist": 3.5, "max_dist": 6.0, "success_threshold": 10}  # 远距离
+            0: {"min_dist": 0.5, "max_dist": 2.5, "success_threshold": 50},  # 近距离
+            1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 100},  # 中距离  
+            2: {"min_dist": 4.5, "max_dist": 6.0, "success_threshold": 300}  # 远距离
         }
         # =======================================
         
@@ -344,7 +344,7 @@ class approach(BaseTask):
         # 任务成功标志：True表示本episode成功完成任务
         self.task_success = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # 成功条件配置
-        self.success_distance_threshold = 0.1  # 机器人到球的距离阈值(米)
+        self.success_distance_threshold = 0.08  # 机器人到球的距离阈值(米)
         self.success_angle_threshold = 5.0   # 机器人-球-球门角度阈值(度)
         # ===========================================
 
@@ -442,8 +442,8 @@ class approach(BaseTask):
             ball_y_offset = distance * np.sin(angle)
             
             # 确保球不会超出有效活动区域边界
-            ball_x_offset = np.clip(ball_x_offset, -5.5, 5.5)  # 留0.5米安全边距
-            ball_y_offset = np.clip(ball_y_offset, -4.0, 4.0)  # 留0.5米安全边距
+            ball_x_offset = np.clip(ball_x_offset, -6, 6)  # 
+            ball_y_offset = np.clip(ball_y_offset, -4.5, 4.5)  
             
             # 设置球的最终位置
             self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0] + ball_x_offset
@@ -614,7 +614,7 @@ class approach(BaseTask):
         self.last_dof_vel[:] = self.dof_vel
         self.last_root_vel[:] = self.robot_root_states[:, 7:13]
         self.last_feet_pos[:] = self.feet_pos
-
+        print(f"当前机器人的等级情况: {self.ball_curriculum_level}")
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     # def _kick_robots(self):
