@@ -278,6 +278,7 @@ rewards:
     feet_swing: 1.5
     approach_ball: 1.2
     ball_goal_alignment: 0.8
+  alignment_max_distance: 2.0
   episode_length_s: 20.
   terminate_height: 0.25
   terminate_vel: 50.

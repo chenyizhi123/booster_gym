@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--task","T1","--checkpoint","model_10000_adapted_60d_fixed.pth"]
+            "args": ["--task","approach","--checkpoint","model_31700.pth"]
         }
     ]
 }

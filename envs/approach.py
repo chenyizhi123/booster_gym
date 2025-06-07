@@ -918,36 +918,41 @@ class approach(BaseTask):
         return torch.exp(-torch.square(dist_to_ball) / approach_sigma)
     
     def _reward_ball_goal_alignment(self):
-        """球门对准奖励 - 鼓励机器人、球、球门三点共线，且机器人位于球的后方"""
+        """球门对准奖励 - 确保机器人面向球且在球的后方推向球门"""
         
-        # 向量 v₁: 机器人指向球（在机器人局部坐标系中，只考虑x,y）
-        v1 = self.ball_local_position[:, :2]  # shape: (num_envs, 2) 只取x,y
+        # ===== 1. 检查机器人是否面向球 =====
+        # 机器人前方向（局部坐标系x轴正方向）
+        robot_forward = torch.tensor([1.0, 0.0], device=self.device).expand(self.num_envs, -1)
+        # 机器人到球的方向（局部坐标系，只考虑x,y）
+        robot_to_ball = self.ball_local_position[:, :2]  # shape: (num_envs, 2)
+        robot_to_ball_norm = torch.norm(robot_to_ball, dim=1, keepdim=True) + 1e-8
+        robot_to_ball_unit = robot_to_ball / robot_to_ball_norm
         
-        # 向量 v₂: 球指向球门（需要转换到机器人局部坐标系，只考虑x,y）
-        ball_to_goal_world = self.ball_to_goal_vec  # 世界坐标系中球到球门的向量
-        v2_3d = quat_rotate_inverse(self.base_quat, ball_to_goal_world)  # 转换到机器人坐标系
-        v2 = v2_3d[:, :2]  # shape: (num_envs, 2) 只取x,y
+        # 机器人前方向与到球方向的夹角余弦值
+        facing_ball_cos = torch.sum(robot_forward * robot_to_ball_unit, dim=1)
+        # 只有当机器人朝向球时才给奖励（夹角<90°，即cos>0）
+        facing_ball_reward = torch.clamp(facing_ball_cos, min=0.0)
         
-        # 计算向量的模长（在水平面上）
-        v1_norm = torch.norm(v1, dim=1, keepdim=True) + 1e-8  # 防止除零
-        v2_norm = torch.norm(v2, dim=1, keepdim=True) + 1e-8
+        # ===== 2. 检查机器人-球-球门对准 =====
+        # 球到球门的方向（转换到机器人局部坐标系）
+        ball_to_goal_world = self.ball_to_goal_vec
+        ball_to_goal_local_3d = quat_rotate_inverse(self.base_quat, ball_to_goal_world)
+        ball_to_goal_local = ball_to_goal_local_3d[:, :2]  # 只取x,y
+        ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1, keepdim=True) + 1e-8
+        ball_to_goal_unit = ball_to_goal_local / ball_to_goal_norm
         
-        # 计算余弦相似度: cos(θ) = (v₁ · v₂) / (|v₁| × |v₂|)
-        dot_product = torch.sum(v1 * v2, dim=1)  # 点积（只在x,y平面）
-        cos_theta = dot_product / (v1_norm.squeeze() * v2_norm.squeeze())
+        # 机器人到球的方向与球到球门方向的对准度
+        alignment_cos = torch.sum(robot_to_ball_unit * ball_to_goal_unit, dim=1)
+        alignment_reward = torch.clamp(alignment_cos, min=0.0)
         
-        # 只有当 cos(θ) > 0 时才给奖励（角度 < 90°）
-        # 使用 ReLU 确保负值为0，正值保持不变
-        alignment_reward = torch.clamp(cos_theta, min=0.0)
-        
-        # 距离调制项：距离球太远时降低奖励（只考虑水平距离）
-        dist_to_ball = torch.norm(v1, dim=1)
-        # 距离调制因子，在合理距离内（比如2米内）给予满奖励，超出后指数衰减
+        # ===== 3. 距离调制 =====
+        dist_to_ball = torch.norm(robot_to_ball, dim=1)
         max_effective_distance = self.cfg["rewards"].get("alignment_max_distance", 2.0)
         distance_modulation = torch.exp(-torch.clamp(dist_to_ball - max_effective_distance, min=0.0))
         
-        # 最终奖励 = 对准奖励 × 距离调制
-        final_reward = alignment_reward * distance_modulation
+        # ===== 4. 组合奖励 =====
+        # 必须同时满足：面向球 AND 对准球门 AND 距离合适
+        final_reward = facing_ball_reward * alignment_reward * distance_modulation
         
         return final_reward
 
