@@ -119,7 +119,7 @@ class Runner:
                         act = dist.sample()
                     obs, rew, done, infos = self.env.step(act)
                     obs, rew, done = obs.to(self.device), rew.to(self.device), done.to(self.device)
-                    print(f"第{it}次训练，第{n}步，dones的情况: {done}")
+                    # print(f"第{it}次训练，第{n}步，dones的情况: {done}")
                     privileged_obs = infos["privileged_obs"].to(self.device)
                     self.buffer.update_data("actions", n, act)
                     self.buffer.update_data("rewards", n, rew)

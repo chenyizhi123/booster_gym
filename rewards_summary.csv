@@ -31,8 +31,8 @@ Category,Reward Term,Purpose,Weight
 ,`_reward_torque_limits`,"惩罚关节扭矩接近或超出其物理极限（当前权重为0）",0.0
 ,`_reward_feet_vel_z`,"惩罚足部在Z轴上的速度（未使用，权重为0）",0.0
 --- 足球相关奖励 ---,,
-,`_reward_approach_ball`,"鼓励机器人接近足球，距离越近奖励越高",1.0
-,`_reward_ball_goal_alignment`,"鼓励机器人、球、球门三点共线且机器人位于球后方",0.8
+,`_reward_approach_ball`,"球距离奖励：远距离鼓励接近，最优距离给最高奖励，危险距离强惩罚",1.0
+,`_reward_ball_goal_alignment`,"球门对准奖励：专门处理机器人-球-球门方向对准",0.8
 
 --- 任务终止机制 ---,,
 ,"任务成功重置","当机器人距球<0.1m且角度<5°时触发成功重置",N/A

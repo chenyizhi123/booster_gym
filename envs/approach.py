@@ -317,8 +317,8 @@ class approach(BaseTask):
         self.ball_curriculum_success_count = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         # 课程学习配置
         self.ball_curriculum_config = {
-            0: {"min_dist": 0.5, "max_dist": 2.5, "success_threshold": 50},  # 近距离
-            1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 100},  # 中距离  
+            0: {"min_dist": 0.5, "max_dist": 2.5, "success_threshold": 5},  # 近距离
+            1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 50},  # 中距离  
             2: {"min_dist": 4.5, "max_dist": 6.0, "success_threshold": 300}  # 远距离
         }
         # =======================================
@@ -344,8 +344,8 @@ class approach(BaseTask):
         # 任务成功标志：True表示本episode成功完成任务
         self.task_success = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # 成功条件配置
-        self.success_distance_threshold = 0.08  # 机器人到球的距离阈值(米)
-        self.success_angle_threshold = 5.0   # 机器人-球-球门角度阈值(度)
+        self.success_distance_threshold = 0.1  # 机器人到球的距离阈值(米)
+        self.success_angle_threshold = 10   # 机器人-球-球门角度阈值(度)
         # ===========================================
 
     def _prepare_reward_function(self):
@@ -779,7 +779,7 @@ class approach(BaseTask):
             dim=-1,
         )
         self.extras["privileged_obs"] = self.privileged_obs_buf
-        print(f"self.ball_position: {self.ball_position}")
+        # print(f"self.ball_position: {self.ball_position}")
 
     # ------------ reward functions----------------
     def _reward_survival(self):
@@ -909,13 +909,43 @@ class approach(BaseTask):
         return (left_swing & ~self.feet_contact[:, 0]).float() + (right_swing & ~self.feet_contact[:, 1]).float()
 
     def _reward_approach_ball(self):
-        """靠近球的奖励 - 鼓励机器人接近足球"""
-        # 计算机器人到球的距离（使用局部坐标系中的位置，只考虑x,y水平距离）
+        """球距离奖励 - 专注于距离管理，方向由alignment奖励处理"""
+        # 计算机器人到球的水平距离
         dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
-        # 使用高斯函数将距离转换为奖励，距离越近奖励越高
-        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.5)  # 可在yaml中配置
-        # 最大奖励为1.0，随距离增加呈指数衰减
-        return torch.exp(-torch.square(dist_to_ball) / approach_sigma)
+        
+        # ===== 定义距离阈值 =====
+        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.5)  # 远距离接近的高斯参数
+        optimal_distance = self.cfg["rewards"].get("optimal_ball_distance", 0.06)  # 最优操作距离8cm
+        danger_distance = self.cfg["rewards"].get("danger_collision_distance", 0.03)  # 危险距离3cm
+        
+        # ===== 分区域奖励计算 =====
+        
+        # 1. 远距离区域 (>最优距离) - 高斯接近奖励
+        far_distance_reward = torch.where(
+            dist_to_ball > optimal_distance,
+            torch.exp(-torch.square(dist_to_ball) / approach_sigma),  # 高斯接近奖励
+            torch.zeros_like(dist_to_ball)
+        )
+        
+        # 2. 最优距离区域 (危险距离-最优距离) - 最高奖励
+        optimal_distance_mask = (dist_to_ball <= optimal_distance) & (dist_to_ball > danger_distance)
+        optimal_distance_reward = torch.where(
+            optimal_distance_mask,
+            3 * torch.exp(-2.0 * torch.square(dist_to_ball - optimal_distance)),  # 在最优距离附近给最高奖励
+            torch.zeros_like(dist_to_ball)
+        )
+        
+        # 3. 危险区域 (<危险距离) - 强惩罚
+        danger_penalty = torch.where(
+            dist_to_ball <= danger_distance,
+            -2.0 * torch.exp(-10.0 * dist_to_ball),  # 强烈惩罚
+            torch.zeros_like(dist_to_ball)
+        )
+        
+        # ===== 组合最终奖励 =====
+        total_reward = far_distance_reward + optimal_distance_reward + danger_penalty
+        
+        return total_reward
     
     def _reward_ball_goal_alignment(self):
         """球门对准奖励 - 确保机器人面向球且在球的后方推向球门"""
@@ -924,7 +954,7 @@ class approach(BaseTask):
         # 机器人前方向（局部坐标系x轴正方向）
         robot_forward = torch.tensor([1.0, 0.0], device=self.device).expand(self.num_envs, -1)
         # 机器人到球的方向（局部坐标系，只考虑x,y）
-        robot_to_ball = self.ball_local_position[:, :2]  # shape: (num_envs, 2)
+        robot_to_ball = self.ball_local_position[:, :2]
         robot_to_ball_norm = torch.norm(robot_to_ball, dim=1, keepdim=True) + 1e-8
         robot_to_ball_unit = robot_to_ball / robot_to_ball_norm
         
@@ -937,7 +967,7 @@ class approach(BaseTask):
         # 球到球门的方向（转换到机器人局部坐标系）
         ball_to_goal_world = self.ball_to_goal_vec
         ball_to_goal_local_3d = quat_rotate_inverse(self.base_quat, ball_to_goal_world)
-        ball_to_goal_local = ball_to_goal_local_3d[:, :2]  # 只取x,y
+        ball_to_goal_local = ball_to_goal_local_3d[:, :2]
         ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1, keepdim=True) + 1e-8
         ball_to_goal_unit = ball_to_goal_local / ball_to_goal_norm
         
