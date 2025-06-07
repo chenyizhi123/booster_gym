@@ -424,32 +424,38 @@ class approach(BaseTask):
         )
         self.soccer_actor_indices = self.soccer_indices[env_ids]
         
-        # ===== 基于课程学习的球位置设置 =====
-        for i, env_id in enumerate(env_ids):
-            soccer_idx = self.soccer_actor_indices[i]
+        # ===== 基于课程学习的球位置设置 - 向量化版本 =====
+        if len(env_ids) > 0:
+            # 1. 批量获取课程等级和配置
+            current_levels = self.ball_curriculum_level[env_ids]  # shape: (len(env_ids),)
             
-            # 获取当前环境的课程等级
-            curriculum_level = self.ball_curriculum_level[env_id].item()
-            config = self.ball_curriculum_config[curriculum_level]
+            # 2. 为每个等级创建距离范围张量
+            min_distances = torch.zeros_like(current_levels, dtype=torch.float, device=self.device)
+            max_distances = torch.zeros_like(current_levels, dtype=torch.float, device=self.device)
             
-            # 根据课程等级生成球的位置
-            # 在指定距离范围内随机生成角度和距离
-            angle = np.random.uniform(0, 2 * np.pi)  # 随机角度
-            distance = np.random.uniform(config["min_dist"], config["max_dist"])  # 根据课程等级的距离
+            # 向量化设置距离范围
+            for level, config in self.ball_curriculum_config.items():
+                level_mask = (current_levels == level)
+                min_distances[level_mask] = config["min_dist"]
+                max_distances[level_mask] = config["max_dist"]
             
-            # 将极坐标转换为笛卡尔坐标
-            ball_x_offset = distance * np.cos(angle)
-            ball_y_offset = distance * np.sin(angle)
+            # 3. 批量生成随机角度和距离（向量化）
+            angles = torch.rand(len(env_ids), device=self.device) * 2 * torch.pi  # [0, 2π]
+            distances = min_distances + torch.rand(len(env_ids), device=self.device) * (max_distances - min_distances)
             
-            # 确保球不会超出有效活动区域边界
-            ball_x_offset = np.clip(ball_x_offset, -6, 6)  # 
-            ball_y_offset = np.clip(ball_y_offset, -4.5, 4.5)  
+            # 4. 向量化极坐标转换为笛卡尔坐标
+            ball_x_offsets = distances * torch.cos(angles)
+            ball_y_offsets = distances * torch.sin(angles)
             
-            # 设置球的最终位置
-            self.root_states[soccer_idx, 0] = self.env_origins[env_id, 0] + ball_x_offset
-            self.root_states[soccer_idx, 1] = self.env_origins[env_id, 1] + ball_y_offset
-            self.root_states[soccer_idx, 2] = self.env_origins[env_id, 2] + 0.11  # 球的高度
-        # =========================================
+            # 5. 向量化边界约束
+            ball_x_offsets = torch.clamp(ball_x_offsets, -6.0, 6.0)
+            ball_y_offsets = torch.clamp(ball_y_offsets, -4.5, 4.5)
+            
+            # 6. 批量设置球位置（向量化）
+            self.root_states[self.soccer_actor_indices, 0] = self.env_origins[env_ids, 0] + ball_x_offsets
+            self.root_states[self.soccer_actor_indices, 1] = self.env_origins[env_ids, 1] + ball_y_offsets
+            self.root_states[self.soccer_actor_indices, 2] = self.env_origins[env_ids, 2] + 0.11  # 统一球高度
+        # =============================================
         
         # 重置足球的速度和旋转
         self.root_states[self.soccer_actor_indices, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)  # 单位四元数
