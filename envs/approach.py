@@ -69,7 +69,8 @@ class approach(BaseTask):
         ball_options = gymapi.AssetOptions()
         ball_options.angular_damping=0.1  #设置足球的角阻尼
         ball_options.linear_damping=0.1  #设置足球的线性阻尼（相当于velocity_damping）
-        ball_asset = self.gym.load_asset(self.sim, asset_root, "soccer_ball.urdf", ball_options)  
+        ball_options.fix_base_link = True  #固定球的基座，球不会因物理碰撞移动，但可通过代码设置位置
+        ball_asset = self.gym.load_asset(self.sim, asset_root, "soccer_ball.urdf", ball_options)
         # ===changed by cyz over here===
         self.dof_stiffness = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
         self.dof_damping = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
@@ -914,9 +915,9 @@ class approach(BaseTask):
         dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
         
         # ===== 定义距离阈值 =====
-        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.5)  # 远距离接近的高斯参数
-        optimal_distance = self.cfg["rewards"].get("optimal_ball_distance", 0.06)  # 最优操作距离8cm
-        danger_distance = self.cfg["rewards"].get("danger_collision_distance", 0.03)  # 危险距离3cm
+        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.8)  # 远距离接近的高斯参数
+        optimal_distance = self.cfg["rewards"].get("optimal_ball_distance", 0.13)  # 最优操作距离12cm（略大于成功阈值）
+        danger_distance = self.cfg["rewards"].get("danger_collision_distance", 0.03)  # 危险距离5cm
         
         # ===== 分区域奖励计算 =====
         
@@ -927,18 +928,19 @@ class approach(BaseTask):
             torch.zeros_like(dist_to_ball)
         )
         
-        # 2. 最优距离区域 (危险距离-最优距离) - 最高奖励
+        # 2. 最优距离区域 (危险距离-最优距离) - 减少峰值奖励，增加前进激励
         optimal_distance_mask = (dist_to_ball <= optimal_distance) & (dist_to_ball > danger_distance)
+        # 修改：使用线性递增但控制奖励大小，从1.0递增到2.5
         optimal_distance_reward = torch.where(
             optimal_distance_mask,
-            3 * torch.exp(-2.0 * torch.square(dist_to_ball - optimal_distance)),  # 在最优距离附近给最高奖励
+            1.0 + 1.5 * (optimal_distance - dist_to_ball) / (optimal_distance - danger_distance),  # 从1.0线性递增到2.5
             torch.zeros_like(dist_to_ball)
         )
         
         # 3. 危险区域 (<危险距离) - 强惩罚
         danger_penalty = torch.where(
             dist_to_ball <= danger_distance,
-            -2.0 * torch.exp(-10.0 * dist_to_ball),  # 强烈惩罚
+            -3.0 * torch.exp(-10.0 * dist_to_ball),  # 强烈惩罚
             torch.zeros_like(dist_to_ball)
         )
         
@@ -946,7 +948,6 @@ class approach(BaseTask):
         total_reward = far_distance_reward + optimal_distance_reward + danger_penalty
         
         return total_reward
-    
     def _reward_ball_goal_alignment(self):
         """球门对准奖励 - 确保机器人面向球且在球的后方推向球门"""
         
@@ -985,7 +986,28 @@ class approach(BaseTask):
         final_reward = facing_ball_reward * alignment_reward * distance_modulation
         
         return final_reward
-
+    def _reward_posture_stability(self):
+        """惩罚过度倾斜 - 包含前后倾和左右倾"""
+        roll, pitch, _ = get_euler_xyz(self.base_quat)
+        
+        # 分别处理不同方向的倾斜
+        abs_pitch = torch.abs(pitch)  # 前后倾
+        abs_roll = torch.abs(roll)    # 左右倾
+        
+        # 前后倾惩罚：较严格（正常行走不应该前后倾太多）
+        pitch_penalty = torch.where(
+            abs_pitch <= 0.25,                             # 14.3度以内安全
+            torch.zeros_like(abs_pitch),                   
+            -3.0 * (abs_pitch - 0.25) ** 2                # 前后倾惩罚系数3.0
+        )
+        
+        # 左右倾惩罚：稍宽松（正常步态需要重心转移）
+        roll_penalty = torch.where(
+            abs_roll <= 0.35,                              # 20度以内安全（给步态留空间）
+            torch.zeros_like(abs_roll),                    
+            -2.0 * (abs_roll - 0.35) ** 2                 # 侧倾惩罚系数2.0（比pitch温和）
+        )
+        return pitch_penalty + roll_penalty
     def _update_ball_curriculum(self, env_ids):
         """更新球课程学习进度 - 向量化版本，高性能"""
         if len(env_ids) == 0:
@@ -1065,4 +1087,6 @@ class approach(BaseTask):
         cos_angle = torch.sum(robot_forward_world * goal_dir_world, dim=1)
         cos_angle = torch.clamp(cos_angle, -1.0, 1.0)  # 防止数值误差
         self.heading_angle[:] = torch.acos(cos_angle).unsqueeze(1)
+    
+
     
