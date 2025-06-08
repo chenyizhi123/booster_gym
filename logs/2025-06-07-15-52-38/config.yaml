@@ -91,7 +91,7 @@ control:
     Hip: 200.0
     Knee: 200.0
 env:
-  env_spacing: 15.0
+  env_spacing: 2.0
   num_actions: 12
   num_envs: 4096
   num_observations: 60
