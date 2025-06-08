@@ -69,6 +69,7 @@ class approach(BaseTask):
         ball_options = gymapi.AssetOptions()
         ball_options.angular_damping=0.1  #设置足球的角阻尼
         ball_options.linear_damping=0.1  #设置足球的线性阻尼（相当于velocity_damping）
+        ball_options.fix_base_link=True
         ball_asset = self.gym.load_asset(self.sim, asset_root, "soccer_ball.urdf", ball_options)  
         # ===changed by cyz over here===
         self.dof_stiffness = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
@@ -314,12 +315,14 @@ class approach(BaseTask):
         # 球距离课程等级：0=近距离，1=中距离，2=远距离
         self.ball_curriculum_level = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         # 每个等级的成功次数计数
+        # ================remenber to delete the code under this.==========================
+        # self.ball_curriculum_level+=2
         self.ball_curriculum_success_count = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         # 课程学习配置
         self.ball_curriculum_config = {
             0: {"min_dist": 0.5, "max_dist": 2.5, "success_threshold": 5},  # 近距离
-            1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 50},  # 中距离  
-            2: {"min_dist": 4.5, "max_dist": 6.0, "success_threshold": 300}  # 远距离
+            1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 10},  # 中距离  
+            2: {"min_dist": 4.5, "max_dist": 6.0, "success_threshold": 20}  # 远距离
         }
         # =======================================
         
@@ -344,7 +347,7 @@ class approach(BaseTask):
         # 任务成功标志：True表示本episode成功完成任务
         self.task_success = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # 成功条件配置
-        self.success_distance_threshold = 0.1  # 机器人到球的距离阈值(米)
+        self.success_distance_threshold = 0.2  # 机器人到球的距离阈值(米)
         self.success_angle_threshold = 10   # 机器人-球-球门角度阈值(度)
         # ===========================================
 
@@ -621,6 +624,7 @@ class approach(BaseTask):
         self.last_root_vel[:] = self.robot_root_states[:, 7:13]
         self.last_feet_pos[:] = self.feet_pos
         print(f"当前机器人的等级情况: {self.ball_curriculum_level}")
+        print(f"self.ball_curriculum_success_count:{self.ball_curriculum_success_count}")
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     # def _kick_robots(self):
@@ -914,8 +918,8 @@ class approach(BaseTask):
         dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
         
         # ===== 定义距离阈值 =====
-        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.5)  # 远距离接近的高斯参数
-        optimal_distance = self.cfg["rewards"].get("optimal_ball_distance", 0.06)  # 最优操作距离8cm
+        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.8)  # 远距离接近的高斯参数  the bigger sigma is,the more approach distance.
+        optimal_distance = self.cfg["rewards"].get("optimal_ball_distance", 0.13)  # 最优操作距离8cm
         danger_distance = self.cfg["rewards"].get("danger_collision_distance", 0.03)  # 危险距离3cm
         
         # ===== 分区域奖励计算 =====
