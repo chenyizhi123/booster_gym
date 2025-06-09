@@ -986,7 +986,28 @@ class approach(BaseTask):
         final_reward = facing_ball_reward * alignment_reward * distance_modulation
         
         return final_reward
-
+    def _reward_posture_stability(self):
+        """惩罚过度倾斜 - 包含前后倾和左右倾"""
+        roll, pitch, _ = get_euler_xyz(self.base_quat)
+        
+        # 分别处理不同方向的倾斜
+        abs_pitch = torch.abs(pitch)  # 前后倾
+        abs_roll = torch.abs(roll)    # 左右倾
+        
+        # 前后倾惩罚：较严格（正常行走不应该前后倾太多）
+        pitch_penalty = torch.where(
+            abs_pitch <= 0.25,                             # 14.3度以内安全
+            torch.zeros_like(abs_pitch),                   
+            -3.0 * (abs_pitch - 0.25) ** 2                # 前后倾惩罚系数3.0
+        )
+        
+        # 左右倾惩罚：稍宽松（正常步态需要重心转移）
+        roll_penalty = torch.where(
+            abs_roll <= 0.35,                              # 20度以内安全（给步态留空间）
+            torch.zeros_like(abs_roll),                    
+            -2.0 * (abs_roll - 0.35) ** 2                 # 侧倾惩罚系数2.0（比pitch温和）
+        )
+        return pitch_penalty + roll_penalty
     def _update_ball_curriculum(self, env_ids):
         """更新球课程学习进度 - 向量化版本，高性能"""
         if len(env_ids) == 0:
