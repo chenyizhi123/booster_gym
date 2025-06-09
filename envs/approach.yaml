@@ -184,7 +184,7 @@ randomization:
     operation: "additive"
     distribution: "gaussian"
 
-  kick_interval_s: 2.
+  kick_interval_s: 1.
   kick_lin_vel:
     range: [0., 0.1]
     operation: "additive"
@@ -194,7 +194,7 @@ randomization:
     operation: "additive"
     distribution: "gaussian"
 
-  push_interval_s: 5.
+  push_interval_s: 2.
   push_duration_s: 1.
   push_force:
     range: [0., 10.]

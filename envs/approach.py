@@ -318,8 +318,9 @@ class approach(BaseTask):
         # 课程学习配置
         self.ball_curriculum_config = {
             0: {"min_dist": 0.5, "max_dist": 2.5, "success_threshold": 5},  # 近距离
-            1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 50},  # 中距离  
-            2: {"min_dist": 4.5, "max_dist": 6.0, "success_threshold": 300}  # 远距离
+            1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 20},  # 中距离  
+            2: {"min_dist": 4.5, "max_dist": 6.0, "success_threshold": 40},  # 远距离
+            3: {"min_dist": -3, "max_dist": -5.0, "success_threshold": 100}  # 超远距离
         }
         # =======================================
         
@@ -603,8 +604,8 @@ class approach(BaseTask):
         self.common_step_counter += 1
         self.gait_process[:] = torch.fmod(self.gait_process + self.dt * self.gait_frequency, 1.0)
 
-        # self._kick_robots()
-        # self._push_robots()
+        self._kick_robots()
+        self._push_robots()
         self._check_termination()
         self._compute_reward()
 
@@ -623,35 +624,35 @@ class approach(BaseTask):
         print(f"当前机器人的等级情况: {self.ball_curriculum_level}")
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
-    # def _kick_robots(self):
-    #     """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
-    #     if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
-    #         self.root_states[self.robot_indices, 7:10] = apply_randomization(self.root_states[self.robot_indices, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
-    #         self.root_states[self.robot_indices, 10:13] = apply_randomization(self.root_states[self.robot_indices, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
-    #         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
+    def _kick_robots(self):
+        """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
+        if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
+            self.root_states[self.robot_indices, 7:10] = apply_randomization(self.root_states[self.robot_indices, 7:10], self.cfg["randomization"].get("kick_lin_vel"))
+            self.root_states[self.robot_indices, 10:13] = apply_randomization(self.root_states[self.robot_indices, 10:13], self.cfg["randomization"].get("kick_ang_vel"))
+            self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
-    # def _push_robots(self):
-    #     """Random push the robots. Emulates an impulse by setting a randomized force."""
-    #     if self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == 0:
-    #         self.pushing_forces[:, self.base_indice, :] = apply_randomization(
-    #             torch.zeros_like(self.pushing_forces[:, 0, :]),
-    #             self.cfg["randomization"].get("push_force"),
-    #         )
-    #         self.pushing_torques[:, self.base_indice, :] = apply_randomization(
-    #             torch.zeros_like(self.pushing_torques[:, 0, :]),
-    #             self.cfg["randomization"].get("push_torque"),
-    #         )
-    #     elif self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == np.ceil(
-    #         self.cfg["randomization"]["push_duration_s"] / self.dt
-    #     ):
-    #         self.pushing_forces[:, self.base_indice, :].zero_()
-    #         self.pushing_torques[:, self.base_indice, :].zero_()
-    #     self.gym.apply_rigid_body_force_tensors(
-    #         self.sim,
-    #         gymtorch.unwrap_tensor(self.pushing_forces),
-    #         gymtorch.unwrap_tensor(self.pushing_torques),
-    #         gymapi.LOCAL_SPACE,
-    #     )
+    def _push_robots(self):
+        """Random push the robots. Emulates an impulse by setting a randomized force."""
+        if self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == 0:
+            self.pushing_forces[:, self.base_indice, :] = apply_randomization(
+                torch.zeros_like(self.pushing_forces[:, 0, :]),
+                self.cfg["randomization"].get("push_force"),
+            )
+            self.pushing_torques[:, self.base_indice, :] = apply_randomization(
+                torch.zeros_like(self.pushing_torques[:, 0, :]),
+                self.cfg["randomization"].get("push_torque"),
+            )
+        elif self.common_step_counter % np.ceil(self.cfg["randomization"]["push_interval_s"] / self.dt) == np.ceil(
+            self.cfg["randomization"]["push_duration_s"] / self.dt
+        ):
+            self.pushing_forces[:, self.base_indice, :].zero_()
+            self.pushing_torques[:, self.base_indice, :].zero_()
+        self.gym.apply_rigid_body_force_tensors(
+            self.sim,
+            gymtorch.unwrap_tensor(self.pushing_forces),
+            gymtorch.unwrap_tensor(self.pushing_torques),
+            gymapi.LOCAL_SPACE,
+        )
 
     def _refresh_feet_state(self):
         self.feet_pos[:] = self.body_states[:, self.feet_indices, 0:3]
