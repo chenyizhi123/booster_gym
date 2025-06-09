@@ -320,7 +320,7 @@ class approach(BaseTask):
             0: {"min_dist": 0.5, "max_dist": 2.5, "success_threshold": 5},  # 近距离
             1: {"min_dist": 2.5, "max_dist": 4.5, "success_threshold": 20},  # 中距离  
             2: {"min_dist": 4.5, "max_dist": 6.0, "success_threshold": 40},  # 远距离
-            3: {"min_dist": -3, "max_dist": -5.0, "success_threshold": 100}  # 超远距离
+            3: {"min_dist": -3, "max_dist": -6.0, "success_threshold": 100}  # 超远距离
         }
         # =======================================
         
