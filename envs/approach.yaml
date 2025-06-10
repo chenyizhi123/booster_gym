@@ -1,7 +1,7 @@
 basic:
   checkpoint: null # set to -1 to load last saved model
   headless: false
-  max_iterations: 10000 # set the maximum number of learning iterations to train for
+  max_iterations: 30000 # set the maximum number of learning iterations to train for
   sim_device: "cuda:0" # device for physics simulation
   rl_device: "cuda:0" # device for the RL algorithm
   seed: 42 # seed - set to -1 to choose random seed
@@ -14,6 +14,7 @@ env:
   num_actions: 12
   env_spacing: 15.  # not used with plane terrain
 
+
 runner:
   horizon_length: 24
   mini_epochs: 20
@@ -23,7 +24,7 @@ runner:
 viewer:
   pos: [3., -3., 2.]  # [m]
   lookat: [0., 0., 0.]  # [m]
-  record_video: true  # only in play
+  record_video: false  # only in play
   record_interval: 5.  # [s]
   record_env_idx: 0
 
@@ -113,6 +114,7 @@ terrain:
   slope_threshold: 2.0
 
 commands:
+  cur_random: false # if true, the curriclum are sampled randomly from the range
   num_commands: 3 # default: lin_vel_x, lin_vel_y, ang_vel_yaw
   still_proportion: 0.1
   lin_vel_x: [-1.0, 1.0] # min max [m/s]
@@ -255,7 +257,7 @@ rewards:
     tracking_lin_vel_y: 0
     tracking_ang_vel: 0
     base_height: -10.
-    orientation: -2.
+    orientation: -8.0
     torques: -1.e-4
     torque_tiredness: -5.e-3
     power: -1.e-3
@@ -276,13 +278,17 @@ rewards:
     feet_roll: -0.05
     feet_distance: -0.5
     feet_swing: 1.5
-    approach_ball: 1.5
+    approach_ball: 0.0
     ball_goal_alignment: 1.8
-    posture_stability: 0.5
-  approach_sigma: 0.8
-  optimal_ball_distance: 0.13
-  danger_collision_distance: 0.03
-  alignment_max_distance: 2.0
+    posture_stability: 1.5
+    approach_v1_ball: 1.8
+  facing_ball_reward_weight: 1.5 # weight of the facing ball reward
+  approach_sigma: 1
+  optimal_ball_distance: 0.15
+  danger_distance: 0.05
+  success_distance_threshold: 0.2 # [m] distance to the ball to count as success
+  success_angle_threshold: 10
+  alignment_max_distance: 0.1
   episode_length_s: 20.
   terminate_height: 0.25
   terminate_vel: 50.

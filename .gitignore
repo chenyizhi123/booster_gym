@@ -1,0 +1,4 @@
+*.pyc
+logs/
+videos/
+**/__pycache__/
