@@ -21,7 +21,7 @@ from .base_task import BaseTask
 from utils.utils import apply_randomization
 
 
-class approach(BaseTask):
+class kick(BaseTask):
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -138,23 +138,23 @@ class approach(BaseTask):
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
             pos = self.env_origins[i].clone()
             position_range=[[-4,4],[-4.5,4.5]]  
-            robot_pos = gymapi.Transform()
-            robot_pos.p.x = pos[0]+np.random.uniform(position_range[0][0],position_range[0][1])
-            robot_pos.p.y = pos[1]+np.random.uniform(position_range[1][0],position_range[1][1])
-            robot_pos.p.z = pos[2]
-            robot_pose = gymapi.Transform(p=gymapi.Vec3(*robot_pos.p))
-            field_pos = gymapi.Transform()
-            field_pos.p.x = pos[0]
-            field_pos.p.y = pos[1]
-            field_pos.p.z = pos[2]
-            field_pose = gymapi.Transform(
-                p=gymapi.Vec3(*field_pos.p)
-            )
-            ball_pos = gymapi.Transform()
-            ball_pos.p.x = robot_pos.p.x+0.15
-            ball_pos.p.y = robot_pos.p.y+0.15
-            ball_pos.p.z = robot_pos.p.z+0.11
-            ball_pose = gymapi.Transform(p=gymapi.Vec3(*ball_pos.p))
+            # 机器人位置
+            robot_pose = gymapi.Transform()
+            robot_pose.p.x = pos[0] + np.random.uniform(position_range[0][0], position_range[0][1])
+            robot_pose.p.y = pos[1] + np.random.uniform(position_range[1][0], position_range[1][1])
+            robot_pose.p.z = pos[2]
+            
+            # 场地位置
+            field_pose = gymapi.Transform()
+            field_pose.p.x = pos[0]
+            field_pose.p.y = pos[1]
+            field_pose.p.z = pos[2]
+            
+            # 球位置
+            ball_pose = gymapi.Transform()
+            ball_pose.p.x = robot_pose.p.x + 0.15
+            ball_pose.p.y = robot_pose.p.y + 0.15
+            ball_pose.p.z = robot_pose.p.z + 0.11
             "=======================下面处理机器人======================="
             actor_handle = self.gym.create_actor(env_handle, robot_asset, robot_pose, asset_cfg["name"], i, asset_cfg["self_collisions"], 0)
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
