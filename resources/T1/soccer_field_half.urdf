@@ -1,0 +1,182 @@
+<?xml version="1.0"?>
+<robot name="soccer_field_half">
+  <!-- 优化版机器人足球半场 URDF 描述 -->
+  <!-- 基于 RoboCup MSL 规格，半场尺寸: 9米 x 12米 -->
+  <!-- 中心点设置为原点(0,0,0) -->
+  
+  <!-- 材质定义 -->
+  <material name="green">
+    <color rgba="0.0 0.8 0.0 1.0"/>
+  </material>
+  
+  <material name="white">
+    <color rgba="1.0 1.0 1.0 1.0"/>
+  </material>
+  
+  <material name="goal_material">
+    <color rgba="0.9 0.9 0.9 1.0"/>
+  </material>
+  
+  <!-- 基础链接 - 场地中心在原点，地面表面在z=0 -->
+  <link name="field_base">
+    <visual>
+      <origin xyz="0 0 -0.005" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 9 0.01"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.005" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 9 0.01"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1000.0"/>
+      <origin xyz="0 0 -0.005" rpy="0 0 0"/>
+      <inertia ixx="10000.0" ixy="0.0" ixz="0.0" iyy="10000.0" iyz="0.0" izz="10000.0"/>
+    </inertial>
+  </link>
+
+  <!-- 所有场地线条合并为一个link以减少渲染开销 -->
+  <link name="field_lines">
+    <!-- 中线 -->
+    <visual>
+      <origin xyz="0 -4.5 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 0.1 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 左边线 -->
+    <visual>
+      <origin xyz="-6 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 9 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 右边线 -->
+    <visual>
+      <origin xyz="6 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 9 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 球门线 -->
+    <visual>
+      <origin xyz="0 4.5 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="12 0.1 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 禁区前边线 -->
+    <visual>
+      <origin xyz="0 2.3 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="6 0.1 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 禁区左边线 -->
+    <visual>
+      <origin xyz="-3 3.4 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.2 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 禁区右边线 -->
+    <visual>
+      <origin xyz="3 3.4 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 2.2 0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    
+    <!-- 罚球点 -->
+    <visual>
+      <origin xyz="0 1.5 0.001" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.001"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- 球门结构 -->
+  <link name="goal_structure">
+    <!-- 左门柱 -->
+    <visual>
+      <origin xyz="-1.175 4.5 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+    <collision>
+      <origin xyz="-1.175 4.5 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+    </collision>
+    
+    <!-- 右门柱 -->
+    <visual>
+      <origin xyz="1.175 4.5 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+    <collision>
+      <origin xyz="1.175 4.5 0.4" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.8"/>
+      </geometry>
+    </collision>
+    
+    <!-- 横梁 -->
+    <visual>
+      <origin xyz="0 4.5 0.8" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="2.35"/>
+      </geometry>
+      <material name="goal_material"/>
+    </visual>
+    <collision>
+      <origin xyz="0 4.5 0.8" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="2.35"/>
+      </geometry>
+    </collision>
+    
+    <inertial>
+      <mass value="50.0"/>
+      <origin xyz="0 4.5 0.4" rpy="0 0 0"/>
+      <inertia ixx="10.0" ixy="0.0" ixz="0.0" iyy="10.0" iyz="0.0" izz="10.0"/>
+    </inertial>
+  </link>
+
+  <!-- 固定关节 -->
+  <joint name="field_to_lines" type="fixed">
+    <parent link="field_base"/>
+    <child link="field_lines"/>
+  </joint>
+
+  <joint name="field_to_goal" type="fixed">
+    <parent link="field_base"/>
+    <child link="goal_structure"/>
+  </joint>
+
+</robot> 
