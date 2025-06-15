@@ -9,7 +9,7 @@ basic:
 
 env:
   num_envs: 4096
-  num_observations: 60
+  num_observations: 64
   num_privileged_obs: 20
   num_actions: 12
   env_spacing: 15.  # not used with plane terrain

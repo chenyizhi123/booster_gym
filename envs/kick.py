@@ -71,12 +71,13 @@ class kick(BaseTask):
         ball_options.angular_damping=0.1  #设置足球的角阻尼
         ball_options.linear_damping=0.1  #设置足球的线性阻尼（相当于velocity_damping）
         ball_asset = self.gym.load_asset(self.sim, asset_root, "soccer_ball.urdf", ball_options) 
-        self.field_num_dofs = self.gym.get_asset_dof_count(robot_asset)
+        
         "=========下面是创建足球场地的部分=========" 
         field_options = gymapi.AssetOptions()
         field_options.disable_gravity = True
         field_options.fix_base_link = True
         field_asset = self.gym.load_asset(self.sim, asset_root, "soccer_field_half.urdf", field_options) 
+        self.field_num_dofs = self.gym.get_asset_dof_count(field_asset)
         # ===changed by cyz over here===
         self.dof_stiffness = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)
         self.dof_damping = torch.zeros(self.num_envs, self.num_dofs, dtype=torch.float, device=self.device)

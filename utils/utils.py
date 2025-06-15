@@ -14,6 +14,14 @@ def apply_randomization(tensor, params, return_noise=False):
         lower, upper = params["range"]
         noise = torch.rand_like(tensor) if isinstance(tensor, torch.Tensor) else np.random.rand()
         noise_val = lower + (upper - lower) * noise
+    elif params['distribution']=="uniform_2d":
+        lower_x, upper_x = params["range"][0]
+        lower_y, upper_y = params["range"][1]
+        noise_x = torch.rand_like(tensor[..., 0])  # 确保维度匹配
+        noise_y = torch.rand_like(tensor[..., 1])  # 确保维度匹配
+        val_x = lower_x + (upper_x - lower_x) * noise_x
+        val_y = lower_y + (upper_y - lower_y) * noise_y
+        noise_val = torch.stack([val_x, val_y], dim=-1)
     else:
         raise ValueError(f"Invalid randomization distribution: {params['distribution']}")
 
