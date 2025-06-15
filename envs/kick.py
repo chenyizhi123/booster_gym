@@ -496,21 +496,49 @@ class kick(BaseTask):
         self.root_states[self.robot_actor_indices, :2] += self.env_origins[env_ids, :2]
         self.root_states[self.robot_actor_indices, :2] = apply_randomization(self.root_states[self.robot_actor_indices, :2], self.cfg["randomization"].get("init_base_pos_xy"))
         self.root_states[self.robot_actor_indices, 2] += self.terrain.terrain_heights(self.root_states[self.robot_actor_indices, :2])
-        self.root_states[self.robot_actor_indices, 3:7] = quat_from_euler_xyz(
-            torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
-            torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
-            torch.rand(len(env_ids), device=self.device) * (2 * torch.pi),
-        )
         self.root_states[self.robot_actor_indices, 7:9] = apply_randomization(
             torch.zeros(len(env_ids), 2, dtype=torch.float, device=self.device),
             self.cfg["randomization"].get("init_base_lin_vel_xy"),
         )
-        self.soccer_actor_indices = self.soccer_indices[env_ids]
-        # 将足球位置设置为机器人位置加上固定偏移量[0.15, 0.15]
-        ball_offset = torch.tensor([0.15, 0.15], device=self.device)
-        self.root_states[self.soccer_actor_indices, :2] = self.root_states[self.robot_actor_indices, :2].clone() + ball_offset
         
-        # 设置足球的高度（z坐标）
+        # ===== 修复：让机器人朝向球门 =====
+        # 计算机器人到球门的方向
+        robot_pos = self.root_states[self.robot_actor_indices, :2]  # 机器人位置 (x, y)
+        goal_pos = self.goal_position[env_ids, :2]  # 对应的球门位置 (x, y)
+        
+        # 计算朝向球门的角度
+        direction_to_goal = goal_pos - robot_pos
+        yaw_to_goal = torch.atan2(direction_to_goal[:, 1], direction_to_goal[:, 0])
+        
+        # 添加小的随机扰动，避免完全一致但保持大致朝向球门
+        # 数学原理：torch.rand() ∈ [0,1] → (rand-0.5) ∈ [-0.5,0.5] → *角度范围 ∈ [±角度/2]
+        max_yaw_deviation_deg = self.cfg["other"]["max_yaw_deviation_deg"]  # 最大偏差角度（度）
+        max_yaw_deviation_rad = max_yaw_deviation_deg * torch.pi / 180.0  # 转换为弧度
+        yaw_noise = (torch.rand(len(env_ids), device=self.device) - 0.5) * (2 * max_yaw_deviation_rad)
+        yaw_final = yaw_to_goal + yaw_noise
+        
+        # 设置机器人朝向
+        self.root_states[self.robot_actor_indices, 3:7] = quat_from_euler_xyz(
+            torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
+            torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
+            yaw_final,
+        )
+        self.soccer_actor_indices = self.soccer_indices[env_ids]
+        # ===== 修复：让球始终在机器人前方 =====
+        # 获取机器人的朝向四元数
+        robot_quat = self.root_states[self.robot_actor_indices, 3:7]
+        
+        # 定义机器人前方的偏移（局部坐标系）：前方0.15米，右侧0.05米
+        local_ball_offset = torch.tensor([0.15, 0.05, 0.0], device=self.device).expand(len(env_ids), -1)
+        
+        # 将局部偏移转换到世界坐标系
+        from envs.base_task import quat_rotate
+        world_ball_offset = quat_rotate(robot_quat, local_ball_offset)
+        
+        # 设置球的位置：机器人位置 + 世界坐标系下的偏移
+        self.root_states[self.soccer_actor_indices, :3] = self.root_states[self.robot_actor_indices, :3] + world_ball_offset
+        
+        # 确保球的高度合适（覆盖z坐标）
         self.root_states[self.soccer_actor_indices, 2] = self.env_origins[env_ids, 2] + 0.11  # 球高度0.11米
         # 重置足球的旋转为单位四元数（无旋转）
         self.root_states[self.soccer_actor_indices, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)

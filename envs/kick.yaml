@@ -305,3 +305,5 @@ rewards:
   soft_torque_limit: 1.
   swing_period: 0.2
   feet_distance_ref: 0.2
+other:
+  max_yaw_deviation_deg: 15.0
