@@ -85,7 +85,8 @@ class ModelDimensionExpander:
         if output_path is None:
             base_name = os.path.splitext(checkpoint_path)[0]
             output_path = f"{base_name}_expanded_{new_actor_input_dim}d_{new_critic_input_dim}d.pth"
-        
+        if 'optimizer' in checkpoint:
+            del checkpoint['optimizer'] # 删除优化器状态以减小文件大小
         # 保存扩展后的模型
         torch.save(checkpoint, output_path)
         print(f"\n=== 保存成功 ===")
