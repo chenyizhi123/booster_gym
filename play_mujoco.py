@@ -101,9 +101,13 @@ if __name__ == "__main__":
             dof_vel = mj_data.qvel.astype(np.float32)[6:]
             quat = mj_data.sensor("orientation").data[[1, 2, 3, 0]].astype(np.float32)
             base_ang_vel = mj_data.sensor("angular-velocity").data.astype(np.float32)
+            ball_pos = mj_data.sensor("ball_position").data.astype(np.float32)
+            ball_vel = mj_data.sensor("ball_velocity").data.astype(np.float32)
             projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
             if it % cfg["control"]["decimation"] == 0:
                 obs = np.zeros(cfg["env"]["num_observations"], dtype=np.float32)
+                
+                # 原有的47维观察空间
                 obs[0:3] = projected_gravity * cfg["normalization"]["gravity"]
                 obs[3:6] = base_ang_vel * cfg["normalization"]["ang_vel"]
                 obs[6] = lin_vel_x * cfg["normalization"]["lin_vel"]
@@ -114,6 +118,54 @@ if __name__ == "__main__":
                 obs[11:23] = (dof_pos - default_dof_pos) * cfg["normalization"]["dof_pos"]
                 obs[23:35] = dof_vel * cfg["normalization"]["dof_vel"]
                 obs[35:47] = actions
+                
+                # 新增的17维观察空间 (47:64) - 与kick.py保持一致
+                # 获取机器人位置和四元数
+                robot_pos = mj_data.qpos[:3].astype(np.float32)  # 机器人位置
+                robot_quat = mj_data.qpos[3:7].astype(np.float32)  # 机器人四元数 [x,y,z,w]
+                
+                # 1. 球相对于机器人的位置 (局部坐标系) - ball_local_position (3维)
+                ball_rel_pos = ball_pos - robot_pos
+                ball_rel_pos_local = quat_rotate_inverse(robot_quat, ball_rel_pos)
+                obs[47:50] = ball_rel_pos_local
+                
+                # 2. 球相对于机器人的速度 (局部坐标系) - ball_local_velocity (3维)
+                # 这里需要计算球相对于机器人的速度，而不是球的绝对速度
+                robot_vel = mj_data.qvel[:3].astype(np.float32)  # 机器人线速度
+                ball_rel_vel = ball_vel - robot_vel
+                ball_rel_vel_local = quat_rotate_inverse(robot_quat, ball_rel_vel)
+                obs[50:53] = ball_rel_vel_local * cfg["normalization"]["lin_vel"]
+                
+                # 3. 球门方向 (局部坐标系) - goal_dir_relative (3维)
+                goal_pos = np.array([0.0, 4.5, 0.4], dtype=np.float32)
+                goal_rel_pos = goal_pos - robot_pos
+                goal_distance = np.linalg.norm(goal_rel_pos[:2]) + 1e-8
+                goal_direction_world = goal_rel_pos / goal_distance  # 单位向量
+                goal_dir_local = quat_rotate_inverse(robot_quat, goal_direction_world)
+                obs[53:56] = goal_dir_local
+                
+                # 4. 机器人朝向角度 - heading_angle (1维)
+                # 机器人前进方向（局部坐标系x轴）与球门方向的夹角
+                robot_forward_local = np.array([1.0, 0.0, 0.0])
+                cos_angle = np.dot(robot_forward_local, goal_dir_local)
+                cos_angle = np.clip(cos_angle, -1.0, 1.0)
+                heading_angle = np.arccos(cos_angle)
+                obs[56] = heading_angle
+                
+                # 5. 球到球门向量 (世界坐标系) - ball_to_goal_vec (3维)
+                ball_to_goal_vec = goal_pos - ball_pos
+                obs[57:60] = ball_to_goal_vec
+                
+                # 6. 射门指令 - shooting_command (1维)
+                # 简化处理，设为0（左上角）
+                obs[60] = 0
+                
+                # 7. 当前目标点（局部坐标系） - active_target_points (3维)
+                # 使用球门中心作为目标点
+                target_rel_pos = goal_pos - robot_pos
+                target_rel_pos_local = quat_rotate_inverse(robot_quat, target_rel_pos)
+                obs[61:64] = target_rel_pos_local
+                
                 dist = model.act(torch.tensor(obs).unsqueeze(0))
                 actions[:] = dist.loc.detach().numpy()
                 actions[:] = np.clip(actions, -cfg["normalization"]["clip_actions"], cfg["normalization"]["clip_actions"])

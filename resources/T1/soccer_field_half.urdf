@@ -19,13 +19,13 @@
   
   <!-- 基础链接 - 场地中心在原点，地面表面在z=0 -->
   <link name="field_base">
-    <visual>
+    <!-- <visual>
       <origin xyz="0 0 -0.005" rpy="0 0 0"/>
       <geometry>
         <box size="12 9 0.01"/>
       </geometry>
       <material name="green"/>
-    </visual>
+    </visual> -->
     <collision>
       <origin xyz="0 0 -0.005" rpy="0 0 0"/>
       <geometry>
@@ -43,7 +43,7 @@
   <link name="field_lines">
     <!-- 中线 -->
     <visual>
-      <origin xyz="0 -4.5 0.001" rpy="0 0 0"/>
+      <origin xyz="0 -4.5 0.0101" rpy="0 0 0"/>
       <geometry>
         <box size="12 0.1 0.001"/>
       </geometry>
@@ -52,7 +52,7 @@
     
     <!-- 左边线 -->
     <visual>
-      <origin xyz="-6 0 0.001" rpy="0 0 0"/>
+      <origin xyz="-6 0 0.0101" rpy="0 0 0"/>
       <geometry>
         <box size="0.1 9 0.001"/>
       </geometry>
@@ -61,7 +61,7 @@
     
     <!-- 右边线 -->
     <visual>
-      <origin xyz="6 0 0.001" rpy="0 0 0"/>
+      <origin xyz="6 0 0.0101" rpy="0 0 0"/>
       <geometry>
         <box size="0.1 9 0.001"/>
       </geometry>
@@ -70,7 +70,7 @@
     
     <!-- 球门线 -->
     <visual>
-      <origin xyz="0 4.5 0.001" rpy="0 0 0"/>
+      <origin xyz="0 4.5 0.0101" rpy="0 0 0"/>
       <geometry>
         <box size="12 0.1 0.001"/>
       </geometry>
@@ -79,7 +79,7 @@
     
     <!-- 禁区前边线 -->
     <visual>
-      <origin xyz="0 2.3 0.001" rpy="0 0 0"/>
+      <origin xyz="0 2.3 0.0101" rpy="0 0 0"/>
       <geometry>
         <box size="6 0.1 0.001"/>
       </geometry>
@@ -88,7 +88,7 @@
     
     <!-- 禁区左边线 -->
     <visual>
-      <origin xyz="-3 3.4 0.001" rpy="0 0 0"/>
+      <origin xyz="-3 3.4 0.0101" rpy="0 0 0"/>
       <geometry>
         <box size="0.1 2.2 0.001"/>
       </geometry>
@@ -97,7 +97,7 @@
     
     <!-- 禁区右边线 -->
     <visual>
-      <origin xyz="3 3.4 0.001" rpy="0 0 0"/>
+      <origin xyz="3 3.4 0.0101" rpy="0 0 0"/>
       <geometry>
         <box size="0.1 2.2 0.001"/>
       </geometry>
@@ -106,7 +106,7 @@
     
     <!-- 罚球点 -->
     <visual>
-      <origin xyz="0 1.5 0.001" rpy="0 0 0"/>
+      <origin xyz="0 1.5 0.0101" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="0.05" length="0.001"/>
       </geometry>

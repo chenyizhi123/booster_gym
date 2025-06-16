@@ -529,10 +529,9 @@ class kick(BaseTask):
         robot_quat = self.root_states[self.robot_actor_indices, 3:7]
         
         # 定义机器人前方的偏移（局部坐标系）：前方0.15米，右侧0.05米
-        local_ball_offset = torch.tensor([0.15, 0.05, 0.0], device=self.device).expand(len(env_ids), -1)
+        local_ball_offset = torch.tensor([0.2, 0.0, 0.0], device=self.device).expand(len(env_ids), -1)
         
         # 将局部偏移转换到世界坐标系
-        from envs.base_task import quat_rotate
         world_ball_offset = quat_rotate(robot_quat, local_ball_offset)
         
         # 设置球的位置：机器人位置 + 世界坐标系下的偏移
@@ -1250,4 +1249,10 @@ class kick(BaseTask):
         speed_factor = torch.clamp(ball_speed[valid_mask] / self.cfg["rewards"].get("max_speed", 5.0), max=1.0)  
         reward[valid_mask] = direction_reward * speed_factor
         return reward
+    
+    def _reward_standing(self):
+        """位置移动惩罚 - 简单直接地惩罚机器人的水平移动"""
+        # 只惩罚水平方向的线速度，让机器人保持在原地
+        horizontal_speed = torch.norm(self.base_lin_vel[:, :2], dim=1)  # 水平速度大小
+        return horizontal_speed  # 速度越大惩罚越大
     

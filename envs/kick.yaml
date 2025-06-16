@@ -59,7 +59,7 @@ sim:
 
 asset:
   file: "resources/T1/T1_locomotion.urdf"
-  mujoco_file: "resources/T1/T1_locomotion.xml"
+  mujoco_file: "resources/T1/kick_complete_mujoco.xml"
   name: "approch"
   base_name: "Trunk"
   foot_names: ["left_foot_link", "right_foot_link"]
@@ -284,6 +284,7 @@ rewards:
     approach_v1_ball: 0
     zone_shooting: 1.2
     shoot_line: 1.2
+    standing: 2.0
   max_speed: 10.0
   facing_ball_reward_weight: 1.5 # weight of the facing ball reward
   approach_sigma: 1
