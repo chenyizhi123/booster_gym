@@ -252,16 +252,16 @@ randomization:
 
 rewards:
   scales:
-    survival: 1.0
+    survival: 2.0
     tracking_lin_vel_x: 0
     tracking_lin_vel_y: 0
     tracking_ang_vel: 0
-    base_height: -10.
-    orientation: -8.0
+    base_height: -10.0
+    orientation: -10.0
     torques: -1.e-4
     torque_tiredness: -5.e-3
     power: -1.e-3
-    lin_vel_z: -1.
+    lin_vel_z: -1.0
     ang_vel_xy: -0.1
     dof_vel: -5.e-5
     dof_acc: -5.e-8
@@ -280,11 +280,11 @@ rewards:
     feet_swing: 1.5
     approach_ball: 0.0
     ball_goal_alignment: 0
-    posture_stability: 1.5
-    approach_v1_ball: 0
-    zone_shooting: 1.2
-    shoot_line: 1.2
-    standing: 2.0
+    posture_stability: 2.0
+    approach_v1_ball: 0.0
+    zone_shooting: 2.0
+    shoot_line: 1.8
+    standing: 1.8
   max_speed: 20.0
   facing_ball_reward_weight: 1.5 # weight of the facing ball reward
   approach_sigma: 1

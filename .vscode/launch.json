@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--task","approach","--checkpoint","model_31700.pth"]
+            "args": ["--task","kick_2D","--checkpoint","logs/2025-06-26-13-07-43/nn/model_1000.pth","--num_envs","1",]
         }
     ]
 }

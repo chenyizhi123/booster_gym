@@ -21,7 +21,7 @@ from .base_task import BaseTask
 from utils.utils import apply_randomization
 
 
-class kick(BaseTask):
+class kick_2D(BaseTask):
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -155,7 +155,7 @@ class kick(BaseTask):
             ball_pose = gymapi.Transform()
             ball_pose.p.x = robot_pose.p.x + 0.15
             ball_pose.p.y = robot_pose.p.y + 0.15
-            ball_pose.p.z = robot_pose.p.z
+            ball_pose.p.z = robot_pose.p.z+0.11
             "=======================下面处理机器人======================="
             actor_handle = self.gym.create_actor(env_handle, robot_asset, robot_pose, asset_cfg["name"], i, asset_cfg["self_collisions"], 0)
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
@@ -306,6 +306,7 @@ class kick(BaseTask):
         self.contact_forces=self.all_forces[:,:self.num_bodies,:]
         self.all_body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
         self.body_states=self.all_body_states[:,:self.num_bodies,:]
+        # self.soccer_body_states = self.all_body_states[:, self.num_bodies, :]
         self.base_pos = self.robot_root_states[:, 0:3]
         self.base_quat = self.robot_root_states[:, 3:7]
         self.feet_pos = self.body_states[:, self.feet_indices, 0:3]
@@ -524,7 +525,7 @@ class kick(BaseTask):
         self.root_states[self.soccer_actor_indices, :3] = self.root_states[self.robot_actor_indices, :3] + world_ball_offset
         
         # 确保球的高度合适（覆盖z坐标）
-        self.root_states[self.soccer_actor_indices, 2] = self.env_origins[env_ids, 2]   
+        self.root_states[self.soccer_actor_indices, 2] = self.env_origins[env_ids, 2]
         # 重置足球的旋转为单位四元数（无旋转）
         self.root_states[self.soccer_actor_indices, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)
         # 重置足球的线性速度和角速度为零
@@ -748,32 +749,32 @@ class kick(BaseTask):
     def _check_termination(self):
         """Check if environments need to be reset"""
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1.0, dim=1)
-        self.reset_buf |= self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
-        self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
+        # self.reset_buf = self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
+        # self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
 
         # ========================
         
         # ===== 球出界终止条件 =====
         # 检查球是否超出有效活动区域 [-6, 6] x [-4.5, 4.5]
+        self.soccer_root_states=self.root_states[self.soccer_indices]
         ball_world_pos = self.soccer_root_states[:, 0:3]  # 球的世界坐标位置
-        # 计算球相对于环境原点的位置
-        ball_relative_pos = ball_world_pos - self.env_origins
+  
         
         # 检查球是否超出边界
         ball_out_of_bounds = (
-            (ball_relative_pos[:, 0] < -6.0) |  # X轴负边界
-            (ball_relative_pos[:, 0] > 6.0) |   # X轴正边界
-            (ball_relative_pos[:, 1] < -4.5) |  # Y轴负边界
-            (ball_relative_pos[:, 1] > 4.5)     # Y轴正边界
+            (ball_world_pos[:, 0] < -6.0) |  # X轴负边界
+            (ball_world_pos[:, 0] > 6.0) |   # X轴正边界
+            (ball_world_pos[:, 1] < -4.5) |  # Y轴负边界
+            (ball_world_pos[:, 1] > 4.5)     # Y轴正边界
         )
         
         # 球出界时触发重置
         self.reset_buf |= ball_out_of_bounds
         # ==============================
         
-        self.time_out_buf = self.episode_length_buf > np.ceil(self.cfg["rewards"]["episode_length_s"] / self.dt)
-        self.reset_buf |= self.time_out_buf
-        self.time_out_buf |= self.episode_length_buf == self.cmd_resample_time
+        # self.time_out_buf = self.episode_length_buf > np.ceil(self.cfg["rewards"]["episode_length_s"] / self.dt)
+        # self.reset_buf |= self.time_out_buf
+        # self.time_out_buf |= self.episode_length_buf == self.cmd_resample_time
 
     def _compute_reward(self):
         """Compute rewards
@@ -969,7 +970,7 @@ class kick(BaseTask):
         # 检查球是否在球门范围内
         in_goal_x = torch.abs(ball_pos[:, 0] - goal_center[:, 0]) < self.goal_width / 2
         in_goal_y = ball_pos[:, 1] == goal_center[:, 1]
-        in_goal_z = (ball_pos[:, 2] > 0.0) & (ball_pos[:, 2] < self.goal_height)
+        in_goal_z =  ball_pos[:, 2] < self.goal_height
         
         ball_in_goal = in_goal_x & in_goal_y & in_goal_z
         goal_envs = torch.where(ball_in_goal)[0]
@@ -1043,10 +1044,11 @@ class kick(BaseTask):
     def _update_ball_observations(self):
         """更新足球相关的观察变量"""
         # 更新足球状态（从仿真中获取最新值）
+        self.soccer_root_states=self.root_states[self.soccer_indices]
         self.ball_position[:] = self.soccer_root_states[:, 0:3]
         self.ball_velocity[:] = self.soccer_root_states[:, 7:10]
         self.ball_angular_velocity[:] = self.soccer_root_states[:, 10:13]
-        
+
         # 1. 计算球在机器人局部坐标系中的位置
         ball_relative_world = self.ball_position - self.base_pos
         self.ball_local_position[:] = quat_rotate_inverse(self.base_quat, ball_relative_world)
