@@ -138,7 +138,7 @@ class kick_2D(BaseTask):
         for i in range(self.num_envs):
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
             pos = self.env_origins[i].clone()
-            position_range=[[-4,4],[-4.5,4.5]]  
+            position_range=[[-4,4],[-3,3]]  
             # 机器人位置
             robot_pose = gymapi.Transform()
             robot_pose.p.x = pos[0] + np.random.uniform(position_range[0][0], position_range[0][1])
@@ -166,7 +166,7 @@ class kick_2D(BaseTask):
             self.gym.set_actor_rigid_shape_properties(env_handle, actor_handle, shape_props)
             self.gym.enable_actor_dof_force_sensors(env_handle, actor_handle)
 
-
+            "=======================下面处理足球======================="
             ball_handle = self.gym.create_actor(env_handle, ball_asset, ball_pose, "ball", i, 1, 0)
             field_handle = self.gym.create_actor(env_handle, field_asset, field_pose, "field", i, 1, 0)
             self.ball_handles.append(ball_handle)
@@ -306,7 +306,7 @@ class kick_2D(BaseTask):
         self.contact_forces=self.all_forces[:,:self.num_bodies,:]
         self.all_body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
         self.body_states=self.all_body_states[:,:self.num_bodies,:]
-        # self.soccer_body_states = self.all_body_states[:, self.num_bodies, :]
+        self.soccer_body_states = self.all_body_states[:, self.num_bodies, :]
         self.base_pos = self.robot_root_states[:, 0:3]
         self.base_quat = self.robot_root_states[:, 3:7]
         self.feet_pos = self.body_states[:, self.feet_indices, 0:3]
@@ -391,8 +391,11 @@ class kick_2D(BaseTask):
         # self.success_angle_threshold = self.cfg['rewards']['success_angle_threshold']   # 机器人-球-球门角度阈值(度)
         # ===========================================
 
+        # ===== 球受力跟踪 =====
+        self.ball_contact_forces = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
+        
         # ===== 四区域射门系统 =====
-        # 射门指令：0=左上, 1=左下, 2=右上, 3=右下
+        
         self.shooting_command = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         
         # 定义四个射门区域的目标点（相对于球门中心的偏移）
@@ -407,13 +410,17 @@ class kick_2D(BaseTask):
         
         for i in range(4):
             self.target_zones[:, i, :] = goal_center
-            self.target_zones[:, i, 0] = goal_center[:, 0] - goal_width / 2 + goal_width * (i + 0.5) / 4  # 左边界+第i个中心
+            # 将球门宽度等分成4个区域，每个区域宽度为goal_width/4
+            zone_width = goal_width / 4
+            goal_left_edge = goal_center[:, 0] - goal_width / 2  # 球门最左边
+            self.target_zones[:, i, 0] = goal_left_edge + zone_width * (i + 0.5)  # 第i个区域的中心
             self.target_zones[:, i, 1] = goal_center[:, 1]  # y坐标与球门中心一致
             self.target_zones[:, i, 2] = goal_center[:, 2]  # z坐标与球门中心一致
         
         # 当前激活的目标点
         self.active_target_points = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self._update_active_targets()  # 初始化目标点
+        
 
     def _prepare_reward_function(self):
         """Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -525,7 +532,7 @@ class kick_2D(BaseTask):
         self.root_states[self.soccer_actor_indices, :3] = self.root_states[self.robot_actor_indices, :3] + world_ball_offset
         
         # 确保球的高度合适（覆盖z坐标）
-        self.root_states[self.soccer_actor_indices, 2] = self.env_origins[env_ids, 2]
+        self.root_states[self.soccer_actor_indices, 2] = self.env_origins[env_ids, 2]+0.11  # 球的高度与地面相同
         # 重置足球的旋转为单位四元数（无旋转）
         self.root_states[self.soccer_actor_indices, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)
         # 重置足球的线性速度和角速度为零
@@ -654,6 +661,10 @@ class kick_2D(BaseTask):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        
+        # 更新球受力 (必须在refresh_net_contact_force_tensor之后)
+        self.ball_contact_forces[:] = self.all_forces[:, self.num_bodies, :]
+        
         self.robot_root_states=self.root_states[self.robot_indices]
         self.soccer_root_states=self.root_states[self.soccer_indices]
         self.base_pos[:] = self.robot_root_states[:, 0:3]
@@ -749,8 +760,8 @@ class kick_2D(BaseTask):
     def _check_termination(self):
         """Check if environments need to be reset"""
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1.0, dim=1)
-        # self.reset_buf = self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
-        # self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
+        self.reset_buf = self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
+        self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
 
         # ========================
         
@@ -772,8 +783,12 @@ class kick_2D(BaseTask):
         self.reset_buf |= ball_out_of_bounds
         # ==============================
         
-        # self.time_out_buf = self.episode_length_buf > np.ceil(self.cfg["rewards"]["episode_length_s"] / self.dt)
-        # self.reset_buf |= self.time_out_buf
+        # ===== Episode超时机制 =====
+        max_episode_length = np.ceil(self.cfg["rewards"]["episode_length_s"] / self.dt)
+        self.time_out_buf = self.episode_length_buf > max_episode_length
+        self.reset_buf |= self.time_out_buf
+        
+        # 指令重采样时间（如果使用速度指令的话）
         # self.time_out_buf |= self.episode_length_buf == self.cmd_resample_time
 
     def _compute_reward(self):
@@ -813,7 +828,7 @@ class kick_2D(BaseTask):
                 self.heading_angle,  # 1维，朝向角度
                 self.ball_to_goal_vec,  # 3维，球到球门向量
                 # 射门指令（标量值）
-                self.shooting_command.float().unsqueeze(-1),  # 1维：0=左上, 1=左下, 2=右上, 3=右下
+                self.shooting_command.float().unsqueeze(-1),  # 1维：0=最左, 1=次左, 2=次右, 3=最右
                 # 当前目标点（局部坐标系）
                 quat_rotate_inverse(self.base_quat, self.active_target_points - self.base_pos),  # 3维，目标点相对位置
             ),
@@ -925,21 +940,29 @@ class kick_2D(BaseTask):
         # Penalize power
         return torch.sum((self.torques * self.dof_vel).clip(min=0.0), dim=-1)
 
-    def _reward_feet_slip(self):
-        # Penalize feet velocities when contact
-        return (
-            torch.sum(
-                torch.square((self.last_feet_pos - self.feet_pos) / self.dt).sum(dim=-1) * self.feet_contact.float(),
-                dim=-1,
-            )
-            * (self.episode_length_buf > 1).float()
-        )
+    def _reward_left_foot_slip(self):
+        # Penalize left foot velocities when in contact
+        left_foot_vel = torch.square((self.last_feet_pos - self.feet_pos) / self.dt).sum(dim=-1)[:, 0]
+        return (left_foot_vel * self.feet_contact[:, 0].float()) * (self.episode_length_buf > 1).float()
 
-    def _reward_feet_vel_z(self):
-        return torch.sum(torch.square((self.last_feet_pos - self.feet_pos) / self.dt)[:, :, 2], dim=-1)
+    def _reward_right_foot_slip(self):
+        # Penalize right foot velocities when in contact  
+        right_foot_vel = torch.square((self.last_feet_pos - self.feet_pos) / self.dt).sum(dim=-1)[:, 1]
+        return (right_foot_vel * self.feet_contact[:, 1].float()) * (self.episode_length_buf > 1).float()
 
-    def _reward_feet_roll(self):
-        return torch.sum(torch.square(self.feet_roll), dim=-1)
+    def _reward_left_foot_vel_z(self):
+        return torch.square((self.last_feet_pos - self.feet_pos) / self.dt)[:, 0, 2]
+
+    def _reward_right_foot_vel_z(self):
+        return torch.square((self.last_feet_pos - self.feet_pos) / self.dt)[:, 1, 2]
+
+    def _reward_left_foot_roll(self):
+        # Only penalize roll angle when left foot is in contact with ground
+        return torch.square(self.feet_roll[:, 0]) * self.feet_contact[:, 0].float()
+
+    def _reward_right_foot_roll(self):
+        # Only penalize roll angle when right foot is in contact with ground  
+        return torch.square(self.feet_roll[:, 1]) * self.feet_contact[:, 1].float()
 
     def _reward_feet_yaw_diff(self):
         return torch.square((self.feet_yaw[:, 1] - self.feet_yaw[:, 0] + torch.pi) % (2 * torch.pi) - torch.pi)
@@ -962,32 +985,45 @@ class kick_2D(BaseTask):
         return (left_swing & ~self.feet_contact[:, 0]).float() + (right_swing & ~self.feet_contact[:, 1]).float()
     
     def _reward_zone_shooting(self):
-        """四区域射门奖励 - 简化版本，直接检测球是否进入目标区域"""
+        """四区域射门奖励 - 三级奖励系统"""
         
         ball_pos = self.ball_position
         goal_center = self.goal_position
         
         # 检查球是否在球门范围内
-        in_goal_x = torch.abs(ball_pos[:, 0] - goal_center[:, 0]) < self.goal_width / 2
-        in_goal_y = ball_pos[:, 1] == goal_center[:, 1]
-        in_goal_z =  ball_pos[:, 2] < self.goal_height
+        in_goal_x = torch.abs(ball_pos[:, 0] - goal_center[:, 0]) < self.goal_width / 2  # x方向：在球门宽度内
+        in_goal_y = ball_pos[:, 1] >= goal_center[:, 1]  # y方向：球越过球门线（y >= 4.5）
+        in_goal_z = (ball_pos[:, 2] >= 0) & (ball_pos[:, 2]<= self.goal_height)  # z方向：在球门高度内（0 < z < 0.8）
         
         ball_in_goal = in_goal_x & in_goal_y & in_goal_z
         goal_envs = torch.where(ball_in_goal)[0]
+        no_goal_envs = torch.where(~ball_in_goal)[0]
         
+        # 初始化奖励
         reward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-        if len(goal_envs) == 0:
-            return reward
+        
+        # ===== 1. 没进球 → 扣分 =====
+        no_goal_penalty = self.cfg["rewards"].get("zone_shooting_no_goal", -10.0)
+        reward[no_goal_envs] = no_goal_penalty
+        
+        # ===== 2&3. 进球的环境 → 根据区域准确性给奖励 =====
+        if len(goal_envs) > 0:
+            # 计算实际区域 (0=最左, 1=次左, 2=次右, 3=最右)
+            # 球门按x坐标分成4个等宽区域
+            goal_left_edge = goal_center[goal_envs, 0] - self.goal_width / 2  # 球门最左边
+            relative_x = ball_pos[goal_envs, 0] - goal_left_edge  # 球相对于球门最左边的x距离
+            zone_width = self.goal_width / 4  # 每个区域的宽度
             
-        # 计算实际区域 (0=左上, 1=左下, 2=右上, 3=右下)
-        is_left = ball_pos[goal_envs, 0] < goal_center[goal_envs, 0]
-        is_top = ball_pos[goal_envs, 2] > goal_center[goal_envs, 2]
-        
-        actual_zone = (~is_left).long() * 2 + (~is_top).long()  # 位运算计算区域
-        correct_zone = (actual_zone == self.shooting_command[goal_envs])
-        
-        # 给奖励
-        reward[goal_envs] = torch.where(correct_zone, 100.0, 10.0)
+            # 计算球所在的区域 (0-3)
+            actual_zone = torch.clamp(torch.floor(relative_x / zone_width).long(), 0, 3)
+            correct_zone = (actual_zone == self.shooting_command[goal_envs])
+            
+            # 从配置文件读取奖励参数
+            correct_zone_reward = self.cfg["rewards"].get("zone_shooting_correct", 100.0)
+            wrong_zone_reward = self.cfg["rewards"].get("zone_shooting_wrong", 20.0)
+            
+            # 进球且射中正确区域 → 正确区域奖励，进球但射错区域 → 错误区域奖励
+            reward[goal_envs] = torch.where(correct_zone, correct_zone_reward, wrong_zone_reward)
         
         return reward
 
@@ -1008,7 +1044,7 @@ class kick_2D(BaseTask):
         """设置指定环境的射门指令
         Args:
             env_ids: 环境ID列表
-            commands: 射门指令列表 (0=左上, 1=左下, 2=右上, 3=右下)
+            commands: 射门指令列表 (0=最左, 1=次左, 2=次右, 3=最右)
         """
         self.shooting_command[env_ids] = commands
         self._update_active_targets(env_ids)
@@ -1018,7 +1054,7 @@ class kick_2D(BaseTask):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
         
-        # 随机选择0-3的指令
+        # 随机选择0-3的指令 (0=最左, 1=次左, 2=次右, 3=最右)
         random_commands = torch.randint(0, 4, (len(env_ids),), device=self.device)
         self.shooting_command[env_ids] = random_commands
         self._update_active_targets(env_ids)
@@ -1027,7 +1063,7 @@ class kick_2D(BaseTask):
         """设置单个环境的射门指令
         Args:
             env_id: 环境ID
-            command: 射门指令 (0=左上, 1=左下, 2=右上, 3=右下)
+            command: 射门指令 (0=最左, 1=次左, 2=次右, 3=最右)
         """
         self.shooting_command[env_id] = command
         self._update_active_targets(torch.tensor([env_id], device=self.device))
@@ -1035,10 +1071,10 @@ class kick_2D(BaseTask):
     def get_shooting_command_info(self):
         """获取射门指令的说明信息"""
         return {
-            0: "左上角 (Left-Top)",
-            1: "左下角 (Left-Bottom)", 
-            2: "右上角 (Right-Top)",
-            3: "右下角 (Right-Bottom)"
+            0: "最左区域 (Far-Left)",
+            1: "次左区域 (Mid-Left)", 
+            2: "次右区域 (Mid-Right)",
+            3: "最右区域 (Far-Right)"
         }
     
     def _update_ball_observations(self):
@@ -1157,7 +1193,7 @@ class kick_2D(BaseTask):
         """球门对准奖励 - 确保机器人面向球且在球的后方推向球门"""
         
         # ===== 1. 检查机器人是否面向球 =====
-        # 机器人前方向（局部坐标系x轴正方向）
+        # 机器人前方向（局部坐标系x轴正方向） 
         robot_forward = torch.tensor([1.0, 0.0], device=self.device).expand(self.num_envs, -1)
         # 机器人到球的方向（局部坐标系，只考虑x,y）
         robot_to_ball = self.ball_local_position[:, :2]
@@ -1243,4 +1279,23 @@ class kick_2D(BaseTask):
         # 只惩罚水平方向的线速度，让机器人保持在原地
         horizontal_speed = torch.norm(self.base_lin_vel[:, :2], dim=1)  # 水平速度大小
         return horizontal_speed  # 速度越大惩罚越大
+    
+    def _reward_ball_contact(self):
+        # Penalize excessive ball contact force
+        return torch.norm(self.ball_contact_forces, dim=1)
+
+    def _reward_post_kick_stability(self):
+        # Reward quick stabilization after ball contact
+        ball_was_contacted = torch.norm(self.ball_contact_forces, dim=1) > 5.0  # 检测是否刚踢过球
+        
+        if ball_was_contacted.any():
+            # 踢球后奖励快速稳定：低速度 + 直立姿态
+            stability_score = (
+                torch.exp(-torch.norm(self.base_lin_vel, dim=1)) +  # 线速度越小越好
+                torch.exp(-torch.norm(self.base_ang_vel, dim=1)) +  # 角速度越小越好  
+                torch.exp(-torch.norm(self.projected_gravity[:, :2], dim=1))  # 姿态越直立越好
+            )
+            return torch.where(ball_was_contacted, stability_score, torch.zeros_like(stability_score))
+        else:
+            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
     
