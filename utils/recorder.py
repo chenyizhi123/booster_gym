@@ -1,8 +1,9 @@
 import torch
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
 import os
 import time
 import yaml
+import numpy as np
 
 
 class Recorder:
@@ -30,7 +31,7 @@ class Recorder:
 
     def record_episode_statistics(self, done, ep_info, it, write_record=False):
         if self.episode_steps is None:
-            self.episode_steps = torch.zeros_like(done, dtype=int)
+            self.episode_steps = torch.zeros_like(done, dtype=torch.int32)
         else:
             self.episode_steps += 1
         for val in self.episode_steps[done]:
@@ -57,6 +58,72 @@ class Recorder:
     def record_statistics(self, statistics, it):
         for key, value in statistics.items():
             self.writer.add_scalar(key, float(value), it)
+
+    def record_gradients(self, model, it, prefix=""):
+        """记录模型梯度信息到TensorBoard
+        
+        Args:
+            model: 要记录梯度的模型
+            it: 迭代步数
+            prefix: 前缀，用于区分不同的模型
+        """
+        if prefix:
+            prefix = prefix + "/"
+        
+        # 收集所有梯度
+        gradients = []
+        
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                grad = param.grad.data
+                gradients.append(grad.flatten())
+                
+                # 检查是否有NaN或inf
+                has_nan = torch.isnan(grad).any()
+                has_inf = torch.isinf(grad).any()
+                
+                # 记录到tensorboard
+                self.writer.add_scalar(f"{prefix}gradients/has_nan/{name}", float(has_nan), it)
+                self.writer.add_scalar(f"{prefix}gradients/has_inf/{name}", float(has_inf), it)
+                
+                # 计算梯度统计信息
+                grad_norm = torch.norm(grad).item()
+                grad_mean = torch.mean(grad).item()
+                grad_std = torch.std(grad).item()
+                grad_min = torch.min(grad).item()
+                grad_max = torch.max(grad).item()
+                
+                # 记录每层的梯度信息
+                layer_name = name.replace('.', '/')
+                self.writer.add_scalar(f"{prefix}gradients/norm/{layer_name}", grad_norm, it)
+                self.writer.add_scalar(f"{prefix}gradients/mean/{layer_name}", grad_mean, it)
+                self.writer.add_scalar(f"{prefix}gradients/std/{layer_name}", grad_std, it)
+                self.writer.add_scalar(f"{prefix}gradients/min/{layer_name}", grad_min, it)
+                self.writer.add_scalar(f"{prefix}gradients/max/{layer_name}", grad_max, it)
+                
+                # 记录梯度分布直方图
+                self.writer.add_histogram(f"{prefix}gradients/histogram/{layer_name}", grad, it)
+        
+        # 计算全局梯度统计信息
+        if gradients:
+            all_gradients = torch.cat(gradients)
+            
+            # 全局梯度范数
+            global_grad_norm = torch.norm(all_gradients).item()
+            self.writer.add_scalar(f"{prefix}gradients/global_norm", global_grad_norm, it)
+            
+            # 全局梯度统计
+            self.writer.add_scalar(f"{prefix}gradients/global_mean", torch.mean(all_gradients).item(), it)
+            self.writer.add_scalar(f"{prefix}gradients/global_std", torch.std(all_gradients).item(), it)
+            self.writer.add_scalar(f"{prefix}gradients/global_min", torch.min(all_gradients).item(), it)
+            self.writer.add_scalar(f"{prefix}gradients/global_max", torch.max(all_gradients).item(), it)
+            
+            # 检查全局NaN/Inf
+            global_has_nan = torch.isnan(all_gradients).any()
+            global_has_inf = torch.isinf(all_gradients).any()
+            
+            self.writer.add_scalar(f"{prefix}gradients/global_has_nan", float(global_has_nan), it)
+            self.writer.add_scalar(f"{prefix}gradients/global_has_inf", float(global_has_inf), it)
 
     def save(self, model_dict, it):
         path = os.path.join(self.model_dir, "model_{}.pth".format(it))

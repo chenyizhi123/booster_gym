@@ -12,9 +12,8 @@ from isaacgym.torch_utils import (
     get_euler_xyz,
     quat_rotate,
 )
-
 from .base_task import BaseTask
-from utils.utils import apply_randomization
+from utils.utils import apply_randomization, check_tensor
 
 class approach_hrl(BaseTask):
     """HRL版本的approach任务"""
@@ -48,8 +47,6 @@ class approach_hrl(BaseTask):
             device=self.device
         )
         
-        # 奖励权重
-        self.reward_weights = self.hrl_cfg["reward"]
         
         # 课程学习配置
         self.curriculum_cfg = self.hrl_cfg.get("curriculum", {})
@@ -114,7 +111,7 @@ class approach_hrl(BaseTask):
             # t1.py的网络参数（从T1.yaml获取）
             t1_num_actions = 12  # 12个关节
             t1_num_obs = 47      # t1.py的观察维度
-            t1_num_privileged_obs = 47  # 特权观察维度
+            t1_num_privileged_obs = 14  # 特权观察维度
             
             # 创建完整的ActorCritic网络
             full_model = ActorCritic(t1_num_actions, t1_num_obs, t1_num_privileged_obs).to(self.device)
@@ -346,7 +343,7 @@ class approach_hrl(BaseTask):
         self.goal_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.goal_position[:, 0] = self.env_origins[:, 0]
         self.goal_position[:, 1] = self.env_origins[:, 1] + 4.5
-        self.goal_position[:, 2] = self.env_origins[:, 2] + 0.2
+        self.goal_position[:, 2] = self.env_origins[:, 2] 
         self.goal_dir_relative = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.ball_to_goal_vec = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.heading_angle = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device)
@@ -396,27 +393,32 @@ class approach_hrl(BaseTask):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         # 机器人和球的索引
-        self.num_actors = 2
+        self.num_actors = 3
         self.robot_indices = torch.arange(0, self.num_actors * self.num_envs, self.num_actors, device=self.device)
         self.soccer_indices = torch.arange(1, self.num_actors * self.num_envs, self.num_actors, device=self.device)
+        self.goal_indices = torch.arange(2, self.num_actors * self.num_envs, self.num_actors, device=self.device)
 
         # 创建状态张量包装器
         self.root_states = gymtorch.wrap_tensor(actor_root_state)
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
-        self.dof_pos = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 0]
-        self.dof_vel = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 1]
+        # ===== 分离机器人和球场的DOF状态 =====
+        total_dofs_per_env = self.num_dofs + self.field_num_dofs
+        # 重新整形DOF状态张量：[num_envs, total_dofs_per_env, 2]
+        dof_state_reshaped = self.dof_state.view(self.num_envs, total_dofs_per_env, 2)
+        # 提取机器人的DOF状态（前num_dofs个）
+        robot_dof_state = dof_state_reshaped[:, :self.num_dofs, :]
+        self.dof_pos = robot_dof_state[..., 0]  # 机器人关节位置
+        self.dof_vel = robot_dof_state[..., 1]  # 机器人关节速度
         
-        # 机器人和足球状态
-        self.robot_root_states = self.root_states[self.robot_indices]
-        self.soccer_root_states = self.root_states[self.soccer_indices]
-        
-        # 接触力和身体状态
-        self.all_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)
-        self.contact_forces = self.all_forces[:, :self.num_bodies, :]
+        # 针对机器人和足球的特定处理，注意这个变量只读，只能由gym更新
+        self.robot_root_states=self.root_states[self.robot_indices]
+        self.soccer_root_states=self.root_states[self.soccer_indices]
+        #============================cyz changed it================================
+        self.all_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
+        self.contact_forces=self.all_forces[:,:self.num_bodies,:]
         self.all_body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
-        self.body_states = self.all_body_states[:, :self.num_bodies, :]
-        
-        # 基础状态
+        self.body_states=self.all_body_states[:,:self.num_bodies,:]
+        self.soccer_body_states = self.all_body_states[:, self.num_bodies, :]
         self.base_pos = self.robot_root_states[:, 0:3]
         self.base_quat = self.robot_root_states[:, 3:7]
         self.feet_pos = self.body_states[:, self.feet_indices, 0:3]
@@ -446,8 +448,8 @@ class approach_hrl(BaseTask):
         
         # 任务成功标志
         self.task_success = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self.success_distance_threshold = self.cfg['rewards']['success_distance_threshold']
-        self.success_angle_threshold = self.cfg['rewards']['success_angle_threshold']
+        # self.success_distance_threshold = self.cfg['rewards']['success_distance_threshold']
+        # self.success_angle_threshold = self.cfg['rewards']['success_angle_threshold']
 
         # 默认关节位置
         self.default_dof_pos = torch.zeros(1, self.num_dofs, dtype=torch.float, device=self.device)
@@ -501,29 +503,25 @@ class approach_hrl(BaseTask):
         # 4. 状态更新
         self._post_physics_step()
         
-        # 5. 干扰机制（与t1.py保持一致）
-        self._kick_robots()
-        self._push_robots()
         
-        # 6. 奖励计算
+        # 5. 奖励计算
         self._compute_reward()
         
-        # 7. 检查终止和重置
+        # 6. 检查终止和重置
         self._check_termination()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         if len(env_ids) > 0:
             self._reset_idx(env_ids)
         
-        # 8. 更新观察
+        # 7. 更新观察
         self._update_ball_observations()
         self._compute_observations()
         
-        # 9. 更新历史状态（与t1.py保持一致）
+        # 8. 更新历史状态（与t1.py保持一致）
         self.last_dof_vel[:] = self.dof_vel
         self.last_root_vel[:] = self.robot_root_states[:, 7:13]
-        self.last_feet_pos[:] = self.feet_pos
         
-        # 10. 更新步数计数器
+        # 9. 更新步数计数器
         self.common_step_counter += 1
         
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
@@ -591,7 +589,7 @@ class approach_hrl(BaseTask):
         for i in range(self.cfg["control"]["decimation"]):
             self.last_dof_targets[self.delay_steps == i] = dof_targets[self.delay_steps == i]
             dof_torques = self.dof_stiffness * (self.last_dof_targets - self.dof_pos) - self.dof_damping * self.dof_vel
-            friction = torch.min(self.dof_friction, dof_torques.abs()) * torch.sign(dof_torques)
+            friction = torch.minimum(self.dof_friction, dof_torques.abs()) * torch.sign(dof_torques)
             dof_torques = torch.clip(dof_torques - friction, min=-self.torque_limits, max=self.torque_limits)
             self.torques += dof_torques
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_torques))
@@ -673,123 +671,224 @@ class approach_hrl(BaseTask):
         if self.cfg["rewards"]["only_positive_rewards"]:
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.0)
 
-    # ------------ HRL VLN奖励函数 ----------------
-    def _reward_approach(self):
-        """阶段1: 接近球 (距离 > 1.0m) - 速度增量指向球"""
+    # ------------ 大道至简的奖励函数 ----------------
+    def _reward_approach_ball(self):
+        """简单奖励：靠近球 - 优化远距离动力"""
         ball_distance = torch.norm(self.ball_local_position[:, :2], dim=1)
-        stage_mask = ball_distance > 1.0
-        
-        # 速度增量应该指向球
-        ball_direction = self.ball_local_position[:, :2]
-        ball_direction_norm = torch.norm(ball_direction, dim=1, keepdim=True) + 1e-8
-        ball_direction_unit = ball_direction / ball_direction_norm
-        
-        # 评估速度增量方向
-        delta_vel = self.last_delta_commands[:, :2]  # [ΔVx, ΔVy]
-        delta_norm = torch.norm(delta_vel, dim=1, keepdim=True) + 1e-8
-        delta_unit = delta_vel / delta_norm
-        
-        # 方向一致性奖励
-        direction_alignment = torch.sum(delta_unit * ball_direction_unit, dim=1)
-        return direction_alignment * stage_mask.float()
+        return torch.exp(-ball_distance * 0.5)
 
-    def _reward_alignment(self):
-        """阶段2: 对齐球门 (0.5m < 距离 <= 1.0m) - 调整角度对准"""
+    def _reward_behind_ball(self):
+        """机器人在球的后方（相对于球门）- 只给正奖励"""
         ball_distance = torch.norm(self.ball_local_position[:, :2], dim=1)
-        stage_mask = (ball_distance > 0.5) & (ball_distance <= 1.0)
+        
+        # 扩大激活范围，让机器人更早考虑位置
+        close_mask = ball_distance <= 1.2
+        if not close_mask.any():
+            return torch.zeros(self.num_envs, device=self.device)
+        
+        # 使用世界坐标系计算，避免坐标系混乱
+        # 机器人位置
+        robot_pos = self.base_pos[:, :2]  # 世界坐标系中的机器人位置
+        ball_pos = self.ball_position[:, :2]  # 世界坐标系中的球位置
+        goal_pos = self.goal_position[:, :2]  # 世界坐标系中的球门位置
+        
+        # 球到球门的方向
+        ball_to_goal = goal_pos - ball_pos
+        ball_to_goal_norm = torch.norm(ball_to_goal, dim=1, keepdim=True) + 1e-8
+        ball_to_goal_unit = ball_to_goal / ball_to_goal_norm
         
         # 机器人到球的方向
-        robot_to_ball = self.ball_local_position[:, :2]
+        robot_to_ball = ball_pos - robot_pos
         robot_to_ball_norm = torch.norm(robot_to_ball, dim=1, keepdim=True) + 1e-8
         robot_to_ball_unit = robot_to_ball / robot_to_ball_norm
         
-        # 球到球门的方向
-        ball_to_goal_world = self.ball_to_goal_vec
-        ball_to_goal_local = quat_rotate_inverse(self.base_quat, ball_to_goal_world)[:, :2]
-        ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1, keepdim=True) + 1e-8
-        ball_to_goal_unit = ball_to_goal_local / ball_to_goal_norm
+        # 计算对齐度：机器人到球的方向应该与球到球门的方向相同
+        alignment = torch.sum(robot_to_ball_unit * ball_to_goal_unit, dim=1)
+        # 新增：机器人朝向检查
+        robot_forward = torch.tensor([1.0, 0.0], device=self.device)
+        goal_direction = self.goal_dir_relative[:, :2]  # 机器人局部坐标系中的球门方向
+        goal_direction_norm = torch.norm(goal_direction, dim=1, keepdim=True) + 1e-8
+        goal_direction_unit = goal_direction / goal_direction_norm
+        # 机器人是否面向球门
+        facing_alignment = torch.sum(robot_forward * goal_direction_unit, dim=1)
+        # 只给正奖励，避免负奖励陷阱
+        positive_alignment = torch.clamp(alignment + facing_alignment, 0.0, 2.0)
+
+        return positive_alignment * close_mask.float()
+
+    def _reward_kick_to_goal(self):
+        """简单粗暴：球朝球门移动就给奖励"""
+        # 球到球门的向量
+        ball_to_goal_vec = self.ball_to_goal_vec[:, :2]
+        ball_to_goal_distance = torch.norm(ball_to_goal_vec, dim=1, keepdim=True)
+        ball_to_goal_unit = ball_to_goal_vec / (ball_to_goal_distance + 1e-8)
         
-        # 对准度：机器人->球 与 球->球门 的一致性
-        cos_angle = torch.sum(robot_to_ball_unit * ball_to_goal_unit, dim=1)
-        cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
+        # 球的真实世界速度（不是相对速度）
+        ball_velocity = self.ball_velocity[:, :2].clone()
         
-        # 角速度增量应该帮助对齐
-        angle_error = torch.acos(cos_angle)
-        desired_angular_delta = torch.clamp(angle_error * 0.5, -0.1, 0.1)
-        actual_angular_delta = self.last_delta_commands[:, 2]
-        angular_error = torch.abs(actual_angular_delta - desired_angular_delta)
+        # 球朝球门移动的速度分量
+        ball_goal_velocity = torch.sum(ball_velocity * ball_to_goal_unit, dim=1)
         
-        return (cos_angle - angular_error) * stage_mask.float()
+        # 只奖励朝球门的速度，不奖励远离球门的速度
+        return torch.clamp(ball_goal_velocity * 3.0, 0.0, 100.0)
+
+    def _reward_success(self):
+        """任务成功奖励"""
+        return self.task_success.float() * 100.0
+
+    def _reward_time_penalty(self):
+        """时间惩罚 - 每一帧都扣分，鼓励尽快完成任务"""
+        return -torch.ones(self.num_envs, dtype=torch.float, device=self.device)
+
+    def _reward_final_sprint(self):
+        """爆发时刻触发：检测关键时机全力冲刺"""
+        ball_dist = torch.norm(self.ball_to_goal_vec[:, :2], dim=1)
+        robot_speed = torch.norm(self.base_lin_vel[:, :2], dim=1)
+        robot_ball_dist = torch.norm(self.ball_local_position[:, :2], dim=1)
+        
+        # 爆发时机判断
+        explosive_moment = (
+            (ball_dist < 3.0) &                    # 球接近球门
+            (robot_ball_dist < 0.8) &              # 机器人接近球
+            (robot_speed > 0.5)                    # 机器人已在移动
+        )
+        
+        # 爆发状态下的机器人冲刺奖励
+        sprint_power = torch.square(robot_speed) * 3.0  # 平方增长，鼓励高速
+        
+        # 持续冲刺奖励（防止急停）
+        momentum_bonus = torch.tanh(robot_speed * 2.0) * 2.0
+        
+        # 只在爆发时刻给予奖励
+        final_reward = explosive_moment.float() * (sprint_power + momentum_bonus)
+        
+        return final_reward 
+
+        # ------------ 分阶段奖励系统 ----------------
+    def _reward_approach_and_align(self):
+        """智能接近和对准 - 分阶段处理"""
+        ball_distance = torch.norm(self.ball_local_position[:, :2], dim=1)
+        ball_to_goal_distance = torch.norm(self.ball_to_goal_vec[:, :2], dim=1)
+        
+        # 排除射门阶段
+        shoot_stage = (ball_distance <= 0.3) & (ball_to_goal_distance <= 1.0)
+        stage_mask = ~shoot_stage
+        
+        if not stage_mask.any():
+            return torch.zeros(self.num_envs, device=self.device)
+        
+        reward = torch.zeros(self.num_envs, device=self.device)
+        
+        # 阶段1: 距离超过0.5米 - 只考虑向球走
+        far_mask = (ball_distance > 0.5) & stage_mask
+        if far_mask.any():
+            # 简单的距离奖励
+            distance_reward = torch.exp(-ball_distance * 0.8)
+            reward += distance_reward * far_mask.float()
+        
+        # 阶段2: 0.5米到0.3米 - 边转向边校准位置
+        mid_mask = (ball_distance <= 0.5) & (ball_distance > 0.3) & stage_mask
+        if mid_mask.any():
+            robot_forward = torch.tensor([1.0, 0.0], device=self.device).expand(self.num_envs, -1)
+            
+            # 球到球门方向（局部坐标系）
+            ball_to_goal_world = self.ball_to_goal_vec[:, :2]
+            ball_to_goal_local = quat_rotate_inverse(
+                self.base_quat, 
+                torch.cat([ball_to_goal_world, torch.zeros(self.num_envs, 1, device=self.device)], dim=-1)
+            )[:, :2]
+            ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1, keepdim=True) + 1e-8
+            ball_to_goal_unit = ball_to_goal_local / ball_to_goal_norm
+            
+            # 机器人朝向球门
+            orientation_reward = torch.clamp(torch.sum(robot_forward * ball_to_goal_unit, dim=1), 0.0, 1.0)
+            
+            # 机器人在球后方
+            robot_to_ball = self.ball_local_position[:, :2]
+            robot_to_ball_norm = torch.norm(robot_to_ball, dim=1, keepdim=True) + 1e-8
+            robot_to_ball_unit = robot_to_ball / robot_to_ball_norm
+            
+            behind_ball_reward = torch.clamp(torch.sum(robot_to_ball_unit * ball_to_goal_unit, dim=1), 0.0, 1.0)
+            
+            # 组合奖励：距离 + 对准
+            distance_reward = torch.exp(-ball_distance * 1.0)
+            alignment_reward = orientation_reward * 0.5 + behind_ball_reward * 0.7
+            
+            total_mid_reward = distance_reward * 0.5 + alignment_reward * 0.5
+            reward += total_mid_reward * mid_mask.float()
+        
+        return reward
 
     def _reward_dribble(self):
-        """阶段3: 带球前进 (0.3m < 距离 <= 0.5m) - 向球门带球"""
+        """推球奖励 - 小于0.3米开始把球往球门带"""
         ball_distance = torch.norm(self.ball_local_position[:, :2], dim=1)
-        stage_mask = (ball_distance > 0.3) & (ball_distance <= 0.5)
+        ball_to_goal_distance = torch.norm(self.ball_to_goal_vec[:, :2], dim=1)
+        
+        # 高速推球阶段条件
+        high_speed_stage = (ball_distance <= 0.3) & (ball_to_goal_distance <= 1.0)
+        
+        # 普通推球：小于0.3米但球离球门远
+        normal_dribble_mask = (ball_distance <= 0.3) & (ball_to_goal_distance > 1.0)
+        
+        if not (normal_dribble_mask.any() or high_speed_stage.any()):
+            return torch.zeros(self.num_envs, device=self.device)
+        
+        # 球的真实世界速度朝球门移动
+        ball_to_goal_vec = self.ball_to_goal_vec[:, :2]
+        ball_to_goal_distance_vec = torch.norm(ball_to_goal_vec, dim=1, keepdim=True)
+        ball_to_goal_unit = ball_to_goal_vec / (ball_to_goal_distance_vec + 1e-8)
+        
+        ball_velocity = self.ball_velocity[:, :2]
+        ball_goal_velocity = torch.sum(ball_velocity * ball_to_goal_unit, dim=1)
+        
+        reward = torch.zeros(self.num_envs, device=self.device)
+        
+        # 普通推球奖励
+        if normal_dribble_mask.any():
+            normal_reward = torch.clamp(ball_goal_velocity * 3.0, 0.0, 10.0)
+            reward += normal_reward * normal_dribble_mask.float()
+        
+        return reward
+
+    def _reward_high_speed_push(self):
+        """高速推球奖励 - 小于0.3米且球离球门小于1米时激活"""
+        ball_distance = torch.norm(self.ball_local_position[:, :2], dim=1)
+        ball_to_goal_distance = torch.norm(self.ball_to_goal_vec[:, :2], dim=1)
+        
+        # 高速推球阶段条件
+        high_speed_stage = (ball_distance <= 0.3) & (ball_to_goal_distance <= 1.0)
+        
+        if not high_speed_stage.any():
+            return torch.zeros(self.num_envs, device=self.device)
+        
+        # 球的真实世界速度
+        ball_velocity = self.ball_velocity[:, :2]
+        ball_speed = torch.norm(ball_velocity, dim=1)
         
         # 球门方向
-        ball_to_goal_world = self.ball_to_goal_vec
-        ball_to_goal_local = quat_rotate_inverse(self.base_quat, ball_to_goal_world)[:, :2]
-        ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1, keepdim=True) + 1e-8
-        ball_to_goal_unit = ball_to_goal_local / ball_to_goal_norm
+        ball_to_goal_vec = self.ball_to_goal_vec[:, :2]
+        ball_to_goal_distance_vec = torch.norm(ball_to_goal_vec, dim=1, keepdim=True)
+        ball_to_goal_unit = ball_to_goal_vec / (ball_to_goal_distance_vec + 1e-8)
         
-        # 速度增量应该向球门方向
-        delta_vel = self.last_delta_commands[:, :2]
-        delta_norm = torch.norm(delta_vel, dim=1, keepdim=True) + 1e-8
-        delta_unit = delta_vel / delta_norm
+        # 球朝球门的速度分量
+        ball_goal_velocity = torch.sum(ball_velocity * ball_to_goal_unit, dim=1)
         
-        # 方向一致性
-        direction_alignment = torch.sum(delta_unit * ball_to_goal_unit, dim=1)
+        # 机器人自身速度奖励（鼓励快速推球）
+        robot_speed = torch.norm(self.base_lin_vel[:, :2], dim=1)
+        robot_speed_reward = torch.clamp(robot_speed * 2.0, 0.0, 5.0)
         
-        # 速度控制：不要太快失控
-        delta_speed = torch.norm(delta_vel, dim=1)
-        speed_penalty = torch.where(delta_speed > 0.1, (delta_speed - 0.1) * 2.0, torch.tensor(0.0, device=self.device))
+        # 球高速奖励（更高的系数）
+        ball_speed_reward = torch.clamp(ball_speed * 4.0, 0.0, 15.0)
         
-        return (direction_alignment - speed_penalty) * stage_mask.float()
-
-    def _reward_shoot(self):
-        """阶段4: 加速射门 (距离 <= 0.3m) - 快速向球门踢球"""
-        ball_distance = torch.norm(self.ball_local_position[:, :2], dim=1)
-        stage_mask = ball_distance <= 0.3
+        # 方向奖励
+        ball_vel_norm = torch.norm(ball_velocity, dim=1, keepdim=True) + 1e-8
+        ball_vel_unit = ball_velocity / ball_vel_norm
+        direction_reward = torch.clamp(torch.sum(ball_vel_unit * ball_to_goal_unit, dim=1), 0.0, 1.0) * 5.0
         
-        # 球门方向
-        ball_to_goal_world = self.ball_to_goal_vec
-        ball_to_goal_local = quat_rotate_inverse(self.base_quat, ball_to_goal_world)[:, :2]
-        ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1, keepdim=True) + 1e-8
-        ball_to_goal_unit = ball_to_goal_local / ball_to_goal_norm
+        # 组合奖励
+        total_reward = robot_speed_reward + ball_speed_reward + direction_reward
         
-        # 速度增量应该大且指向球门
-        delta_vel = self.last_delta_commands[:, :2]
-        delta_speed = torch.norm(delta_vel, dim=1)
-        delta_norm = torch.norm(delta_vel, dim=1, keepdim=True) + 1e-8
-        delta_unit = delta_vel / delta_norm
-        
-        # 方向正确性
-        direction_alignment = torch.sum(delta_unit * ball_to_goal_unit, dim=1)
-        
-        # 速度大小奖励（射门时应该加速）
-        speed_reward = torch.clamp(delta_speed * 5.0, 0.0, 2.0)
-        
-        return (direction_alignment + speed_reward) * stage_mask.float()
-
-    def _reward_delta_quality(self):
-        """速度增量合理性 - 避免过大变化和无意义微调"""
-        delta_magnitude = torch.norm(self.last_delta_commands, dim=1)
-        
-        # 避免过大的速度变化
-        smoothness_penalty = torch.where(
-            delta_magnitude > 0.2, 
-            (delta_magnitude - 0.2) * 2.0, 
-            torch.tensor(0.0, device=self.device)
-        )
-        
-        # 避免无意义的微小变化
-        action_penalty = torch.where(
-            delta_magnitude < 0.01,
-            torch.tensor(0.1, device=self.device),
-            torch.tensor(0.0, device=self.device)
-        )
-        
-        return -(smoothness_penalty + action_penalty)
+        return total_reward * high_speed_stage.float()
 
     def _check_termination(self):
         """检查终止条件"""
@@ -798,25 +897,28 @@ class approach_hrl(BaseTask):
         self.reset_buf = self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
         self.reset_buf |= self.base_pos[:, 2] < self.cfg["rewards"]["terminate_height"]
         
-        # 任务成功检查
-        dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
-        robot_to_ball = self.ball_local_position[:, :2]
-        ball_to_goal_local = quat_rotate_inverse(self.base_quat, self.ball_to_goal_vec)[:, :2]
+        # 任务成功检查 - 球进门才算成功
+        ball_world_pos = self.soccer_root_states[:, 0:3]
+        ball_relative_pos = ball_world_pos - self.env_origins
         
-        robot_to_ball_norm = torch.norm(robot_to_ball, dim=1) + 1e-8
-        ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1) + 1e-8
-        cos_angle = torch.sum(robot_to_ball * ball_to_goal_local, dim=1) / (robot_to_ball_norm * ball_to_goal_norm)
-        cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
-        angle_deg = torch.acos(cos_angle) * 180.0 / 3.14159
+        # 进球条件：
+        # 1. 球越过球门线 (y >= goal_line_y)
+        # 2. 球在球门宽度内 (x在[-goal_width_half, goal_width_half]范围内)
+        # 3. 球在球门高度内 (z在[goal_height_min, goal_height_max]范围内)
+        goal_line_y = self.cfg["rewards"]["goal_line_y"]
+        goal_width_half = self.cfg["rewards"]["goal_width_half"]
+        goal_height_min = self.cfg["rewards"]["goal_height_min"]
+        goal_height_max = self.cfg["rewards"]["goal_height_max"]
         
-        success_condition = (dist_to_ball < self.success_distance_threshold) & (angle_deg < self.success_angle_threshold)
+        goal_line_crossed = ball_relative_pos[:, 1] >= goal_line_y
+        within_goal_width = (ball_relative_pos[:, 0] >= -goal_width_half) & (ball_relative_pos[:, 0] <= goal_width_half)
+        within_goal_height = (ball_relative_pos[:, 2] >= goal_height_min) & (ball_relative_pos[:, 2] <= goal_height_max)
+        
+        success_condition = goal_line_crossed & within_goal_width & within_goal_height
         self.task_success[:] = success_condition
         
-        # 成功时给予奖励并重置
-        success_reward = torch.where(success_condition, 
-                                   torch.tensor(self.reward_weights["success"], device=self.device),
-                                   torch.tensor(0.0, device=self.device))
-        self.rew_buf += success_reward
+        # 成功时给予奖励并重置 (通过标准奖励系统处理)
+        # success_reward 将通过 _reward_success() 函数和标准奖励框架处理
         self.reset_buf |= success_condition
         "=========下面是球出界检查的部分=========" 
         # 球出界检查
@@ -837,19 +939,25 @@ class approach_hrl(BaseTask):
         # 高层策略观察 (14维) - 仅包含真实部署可获取的信息
         # 机器人水平面运动状态 (3维): [Vx, Vy, Wz]
         robot_planar_velocity = torch.cat([
-            self.base_lin_vel[:, :2],      # 水平线速度 (Vx, Vy)
-            self.base_ang_vel[:, 2]      # 绕Z轴角速度 (Wz)
+            self.base_lin_vel[:, :2],        # 水平线速度 (Vx, Vy) - shape: [num_envs, 2]
+            self.base_ang_vel[:, 2:3]        # 绕Z轴角速度 (Wz) - shape: [num_envs, 1]
         ], dim=-1)  # 3维
         
-        ball_distance = torch.norm(self.ball_local_position[:, :2], dim=1, keepdim=True)  # 1维
-        goal_distance = torch.norm(self.goal_position - self.base_pos, dim=1, keepdim=True)  # 1维
+        # 先对位置施加噪声，然后计算距离
+        ball_position_noisy = check_tensor(apply_randomization(self.ball_local_position, self.cfg["noise"].get("vision_position")), device=self.device)
+        goal_dir_noisy = check_tensor(apply_randomization(self.goal_dir_relative, self.cfg["noise"].get("vision_direction")), device=self.device)
+        
+        # 基于带噪声的位置计算距离
+        ball_distance = torch.norm(ball_position_noisy[:, :2], dim=1, keepdim=True)  # 1维 - 基于噪声位置计算
+        goal_distance = torch.norm(goal_dir_noisy[:, :2], dim=1, keepdim=True)  # 1维 - 基于噪声方向计算
         
         self.obs_buf = torch.cat([
-            self.ball_local_position,      # 3维 - 通过视觉可获取
-            self.goal_dir_relative,        # 3维 - 通过定位系统可获取
-            robot_planar_velocity,         # 3维 - 通过IMU可获取 (Vx, Vy, Wz)
-            ball_distance,                 # 1维 - 通过视觉计算
-            goal_distance,                 # 1维 - 通过定位计算
+            ball_position_noisy,           # 3维 - 通过视觉可获取（带噪声）
+            goal_dir_noisy,                # 3维 - 通过定位系统可获取（带噪声）
+            # check_tensor(apply_randomization(robot_planar_velocity, self.cfg["noise"].get("imu_velocity")), device=self.device),         # 3维 - 通过IMU可获取 (Vx, Vy, Wz) - 有噪声
+            # check_tensor(self.last_commands),
+            ball_distance,                 # 1维 - 基于噪声位置计算的距离
+            goal_distance,                 # 1维 - 基于噪声方向计算的距离
             self.last_commands             # 3维 - 内部状态 (Vx_cmd, Vy_cmd, Wz_cmd)
         ], dim=-1)
         
@@ -931,7 +1039,6 @@ class approach_hrl(BaseTask):
         self.extras["time_outs"] = self.time_out_buf
 
     def _reset_dofs(self, env_ids):
-        """重置DOF状态"""
         self.dof_pos[env_ids] = apply_randomization(self.default_dof_pos, self.cfg["randomization"].get("init_dof_pos"))
         self.dof_vel[env_ids] = 0.0
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -941,7 +1048,7 @@ class approach_hrl(BaseTask):
         )
 
     def _reset_root_states(self, env_ids):
-        """重置根状态，包含课程学习逻辑"""
+        """重置根状态，参考逻辑但保持随机初始化"""
         # 重置机器人状态
         robot_actor_indices = self.robot_indices[env_ids]
         self.root_states[robot_actor_indices] = self.base_init_state
@@ -949,11 +1056,20 @@ class approach_hrl(BaseTask):
         self.root_states[robot_actor_indices, :2] = apply_randomization(
             self.root_states[robot_actor_indices, :2], self.cfg["randomization"].get("init_base_pos_xy")
         )
+        
         # 地形高度处理（兼容平面和复杂地形）
         if hasattr(self, 'terrain') and self.terrain is not None:
             self.root_states[robot_actor_indices, 2] += self.terrain.terrain_heights(self.root_states[robot_actor_indices, :2])
         else:
             self.root_states[robot_actor_indices, 2] += 0.0  # 平面地形
+            
+        # 设置初始线速度
+        self.root_states[robot_actor_indices, 7:9] = apply_randomization(
+            torch.zeros(len(env_ids), 2, dtype=torch.float, device=self.device),
+            self.cfg["randomization"].get("init_base_lin_vel_xy"),
+        )
+        
+        # 随机设置机器人朝向（不面向球或球门，通过奖励学习转向）
         self.root_states[robot_actor_indices, 3:7] = quat_from_euler_xyz(
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
             torch.zeros(len(env_ids), dtype=torch.float, device=self.device),
@@ -1003,8 +1119,8 @@ class approach_hrl(BaseTask):
     def _reset_ball_random(self, env_ids, soccer_actor_indices):
         """随机重置球位置"""
         for i, env_id in enumerate(env_ids):
-            ball_x = torch.rand(1, device=self.device) * 12.0 - 6.0  # [-6, 6]
-            ball_y = torch.rand(1, device=self.device) * 9.0 - 4.5   # [-4.5, 4.5]
+            ball_x = torch.rand(1, device=self.device) * 12.0 - 6.0  # [-5, 5] 缩小X范围
+            ball_y = torch.rand(1, device=self.device) * 8.0 - 4.0   # [-4, 4] 更多在前方
             
             self.root_states[soccer_actor_indices[i], 0] = self.env_origins[env_id, 0] + ball_x
             self.root_states[soccer_actor_indices[i], 1] = self.env_origins[env_id, 1] + ball_y

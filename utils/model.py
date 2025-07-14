@@ -26,9 +26,11 @@ class ActorCritic(torch.nn.Module):
         )
         self.logstd = torch.nn.parameter.Parameter(torch.full((1, num_act), fill_value=-2.0), requires_grad=True)
 
+
     def act(self, obs):
         action_mean = self.actor(obs)
-        action_std = torch.exp(self.logstd).expand_as(action_mean)
+        logstd = torch.clamp(self.logstd, min=-20.0, max=2.0)
+        action_std = torch.exp(logstd).expand_as(action_mean)
         return torch.distributions.Normal(action_mean, action_std)
 
     def est_value(self, obs, privileged_obs):

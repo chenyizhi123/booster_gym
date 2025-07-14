@@ -1,8 +1,18 @@
 # HRL版本的approach配置文件
+basic:
+  checkpoint: null # set to -1 to load last saved model
+  headless: false
+  max_iterations: 50000 # set the maximum number of learning iterations to train for
+  sim_device: "cuda:0" # device for physics simulation
+  rl_device: "cuda:0" # device for the RL algorithm
+  seed: 42 # seed - set to -1 to choose random seed
+  task: "approach_hrl" # task name
+  description: "HRL approach task"
+
 env:
   num_envs: 4096
-  num_observations: 14  # 高层策略观察维度 (3+3+3+1+1+3=14维)
-  num_privileged_obs: 20  # 14+3+3=20维
+  num_observations: 11  # 高层策略观察维度 (3+3+3+1+1+3=14维)
+  num_privileged_obs: 17  # 14+3+3=20维
   num_actions: 3       # 高层策略动作维度 [ΔVx, ΔVy, ΔW_ang]
   env_spacing: 15.0
 
@@ -13,18 +23,18 @@ hrl:
   
   # t1模型配置
   t1_model:
-    checkpoint_path: "-1"  # 设置为-1自动寻找最新模型，或指定具体路径
+    checkpoint_path: "/data/home/chenyz/home/T1_1/booster_gym/logs/2025-07-06-22-12-19/nn/model_44700.pth"  # 设置为-1自动寻找最新模型，或指定具体路径
     
 
   
   action_space:
-    command_limits: [1.5, 1.0, 1.0]     # [Vx, Vy, W_ang] 绝对速度限制
-    delta_limits: [0.2, 0.1, 0.1]      # [ΔVx, ΔVy, ΔW_ang] 增量限制
+    command_limits: [1.5, 1.5, 1.0]     # [Vx, Vy, W_ang] 绝对速度限制
+    delta_limits: [0.3, 0.2, 0.2]      # [ΔVx, ΔVy, ΔW_ang] 增量限制
   
 
   
   curriculum:
-    enabled: true
+    enabled: false
     success_threshold: 0.75
     window_size: 100
     levels:
@@ -43,15 +53,18 @@ hrl:
 
 # 继承原有配置结构
 asset:
-  file: "urdf/anymal_c/urdf/anymal_c.urdf"
-  name: "anymal_c"
-  base_name: "base"
-  foot_names: ["LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"]
-  default_dof_drive_mode: 1
+  file: "resources/T1/T1_locomotion.urdf"
+  mujoco_file: "resources/T1/T1_locomotion.xml"
+  name: "approach_hrl"
+  base_name: "Trunk"
+  foot_names: ["left_foot_link", "right_foot_link"]
+  disable_gravity: false
+  default_dof_drive_mode: 3
   collapse_fixed_joints: true
-  replace_cylinder_with_capsule: true
-  flip_visual_attachments: false
   fix_base_link: false
+  self_collisions: 0
+  replace_cylinder_with_capsule: false
+  flip_visual_attachments: false
   density: 0.001
   angular_damping: 0.0
   linear_damping: 0.0
@@ -59,123 +72,142 @@ asset:
   max_linear_velocity: 1000.0
   armature: 0.0
   thickness: 0.01
-  disable_gravity: false
-  self_collisions: 0
+  feet_edge_pos: [[ 0.1215,  0.05, -0.03],
+                  [ 0.1215, -0.05, -0.03],
+                  [-0.1015,  0.05, -0.03],
+                  [-0.1015, -0.05, -0.03]]
 
 init_state:
-  pos: [0.0, 0.0, 0.42]
+  pos: [0.0, 0.0, 0.72]
   rot: [0.0, 0.0, 0.0, 1.0]
   lin_vel: [0.0, 0.0, 0.0]
   ang_vel: [0.0, 0.0, 0.0]
-  default_joint_angles:
-    LF_HAA: 0.0
-    LH_HAA: 0.0
-    RF_HAA: 0.0
-    RH_HAA: 0.0
-    LF_HFE: 0.4
-    LH_HFE: -0.4
-    RF_HFE: 0.4
-    RH_HFE: -0.4
-    LF_KFE: -0.8
-    LH_KFE: 0.8
-    RF_KFE: -0.8
-    RH_KFE: 0.8
-    default: 0.0
+  default_joint_angles: {"Hip_Pitch": -0.2, "Knee_Pitch": 0.4, "Ankle_Pitch": -0.25, "default": 0.0}
 
 control:
-  action_scale: 0.5
-  decimation: 4
-  stiffness:
-    HAA: 80.0
-    HFE: 80.0
-    KFE: 80.0
-  damping:
-    HAA: 2.0
-    HFE: 2.0
-    KFE: 2.0
+  stiffness: {"Hip": 200., "Knee": 200., "Ankle": 50.}
+  damping: {"Hip": 5., "Knee": 5., "Ankle": 1.}
+  action_scale: 1.0
+  decimation: 10
 
 terrain:
   type: "plane"
+  static_friction: 1.0
+  dynamic_friction: 1.0
+  restitution: 0.0
+  terrain_length: 10.0
+  terrain_width: 10.0
+  border_size: 5.0
+  num_terrains: 8
+  terrain_proportions: [0.0, 0.0, 0.5, 0.5]
+  slope: 0.1
+  random_height: 0.1
+  discrete_height: 0.02
+  horizontal_scale: 0.1
+  vertical_scale: 0.005
+  slope_threshold: 2.0
 
 commands:
-  num_commands: 4
-  curriculum: false
-  lin_vel_x: [-1.0, 1.0]
+  cur_random: false
+  num_commands: 3
+  still_proportion: 0.1
+  lin_vel_x: [-1.5, 1.5]
   lin_vel_y: [-1.0, 1.0]
-  ang_vel_yaw: [-1.0, 1.0]
-  gait_frequency: [2.0, 4.0]
+  ang_vel_yaw: [-1, 1]
+  resampling_time_s: [8., 12.]
+  gait_frequency: [1.0, 2.0]
+  curriculum: false
+  update_rate: 0.1
+  lin_vel_levels: 10
+  ang_vel_levels: 10
+  lin_vel_x_resolution: 0.2
+  lin_vel_y_resolution: 0.1
+  ang_vel_resolution: 0.2
+  episode_length_toler: 0.1
+  lin_vel_x_toler: 0.4
+  lin_vel_y_toler: 0.2
+  ang_vel_yaw_toler: 0.2
 
 rewards:
   scales:
-    # VLN风格HRL奖励
-    approach: 1.0                   # 阶段1: 接近球
-    alignment: 2.0                  # 阶段2: 对齐球门
-    dribble: 1.5                    # 阶段3: 带球前进
-    shoot: 3.0                      # 阶段4: 加速射门
-    delta_quality: 0.5              # 速度增量合理性
-    # 安全性奖励
-    orientation: -0.2               # 防止翻倒
-    base_height: -0.5              # 保持合适高度
-    collision: -1.0                # 避免碰撞
-    dof_pos_limits: -10.0          # 关节限位保护
-  
+    # # 新的分阶段奖励系统
+    # approach_and_align: 2.0         # 智能接近和对准 (>0.5m: 纯接近, 0.5-0.3m: 接近+对准)
+    # dribble: 2.5                    # 普通推球 (<0.3m 且球离球门>1m)
+    # high_speed_push: 4.0            # 高速推球 (<0.3m 且球离球门<1m，增加机器人和球的速度)
+    success: 1.3                      # 球进门就给大奖励 (已*100)
+    time_penalty: 0.02                # 降低时间惩罚，给长序列任务更多时间
+    
+    # 简单版本奖励（暂时注释，需要时可以切换）
+    # approach_ball: 2.0              # 靠近球就给奖励，越近越好
+    # behind_ball: 1.5                # 机器人在球的后方（相对于球门）
+    # kick_to_goal: 2.0              # 球朝球门移动就给奖励，不管怎么踢的
+    # 复杂版本奖励（暂时注释，需要时可以开启）
+    # approach: 1.6                   # 基础奖励：持续接近球，直到射门阶段
+    # alignment: 1.8                  # 精确对准：中近距离额外奖励 (0.2m-1.0m)
+    # dribble: 1.6                    # 推球奖励：近距离鼓励球朝球门移动 (0.0m-0.5m)
+    # shoot: 2.0                      # 射门阶段：机器人很近且球离球门很近
+    # stability: 1.0                  # 稳定性奖励 - 强力反转圈，提高权重
+    #   # 分离式奖励设计 - 每个奖励独立，方便调试
+    approach_ball: 3.5            # 降低接近球的权重，避免盲目冲向球
+    behind_ball: 6.5               # 提高位置奖励权重，强调正确位置  
+    kick_to_goal: 1.8               # 适当提高踢球权重，但要配合位置奖励
+    final_sprint: 1.2               # 临门一脚：球离球门2.8米左右时加速射门
   # 奖励设置
   only_positive_rewards: false
     
-  # HRL成功条件
-  success_distance_threshold: 0.5
-  success_angle_threshold: 30.0
-  base_height_target: 0.42
+  # HRL成功条件 - 球进门才算成功
+  # 球门参数：位置(0, 4.5, 0.2)，宽度2.35m，高度0.8m
+  goal_line_y: 4.5            # 球门线y坐标
+  goal_width_half: 1.175      # 球门宽度的一半(2.35/2)
+  goal_height_min: 0.0001       # 球门最小高度(避免地面接触)
+  goal_height_max: 0.8        # 球门最大高度
+  base_height_target: 0.68
   episode_length_s: 20.0
-  terminate_height: 0.24
+  terminate_height: 0.25
   terminate_vel: 50.0
-  soft_dof_pos_limit: 0.9
+  soft_dof_pos_limit: 1.0
+  soft_dof_vel_limit: 1.0
+  soft_torque_limit: 1.0
+  tracking_sigma: 0.25
+  swing_period: 0.2
+  feet_distance_ref: 0.2
   
   # 接触相关配置
-  penalize_contacts_on: ["SHANK", "THIGH"]
-  terminate_contacts_on: ["base"]
+  penalize_contacts_on: ["Trunk", "H1", "H2", "AL", "AR", "Waist", "Hip", "Shank", "Ankle"]
+  terminate_contacts_on: []
 
 normalization:
-  clip_actions: 1.0
   gravity: 1.0
-  ang_vel: 1.0
   lin_vel: 1.0
+  ang_vel: 1.0
   dof_pos: 1.0
   dof_vel: 0.1
   filter_weight: 0.1
+  push_force: 0.1
+  push_torque: 0.5
+  clip_actions: 1.0
 
 sim:
-  dt: 0.005
+  dt: 0.002
   substeps: 1
+  up_axis: "z"
   gravity: [0.0, 0.0, -9.81]
-  up_axis: 1
-  use_gpu_pipeline: true
+  physics_engine: "physx" # "physx" or "flex"
+  physx:
+    num_threads: 4 # Number of worker threads per scene used by PhysX - for CPU PhysX only.
+    solver_type: 1 # 0: pgs, 1: tgs
+    num_position_iterations: 4
+    num_velocity_iterations: 1
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 100.0
+    default_buffer_size_multiplier: 5.0
+    max_gpu_contact_pairs: 8388608 # 8*1024*1024
+    num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one in a separate thread
+    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
 
-# 随机化配置
-randomization:
-  kick_interval_s: 10.0
-  kick_lin_vel: 0.0
-  kick_ang_vel: 0.0
-  push_interval_s: 15.0
-  push_duration_s: 0.5
-  push_force: 0.0
-  push_torque: 0.0
-  
-  # 初始化随机化
-  init_dof_pos: 0.0
-  init_base_pos_xy: 0.0
-  
-  # 物理属性随机化
-  base_com: 0.0
-  base_mass: 0.0
-  other_com: 0.0
-  other_mass: 0.0
-  dof_stiffness: 0.0
-  dof_damping: 0.0
-  dof_friction: 0.0
-  friction: 0.0
-  compliance: 0.0
-  restitution: 0.0
+# 随机化配置 (删除重复的配置段)
 
 # 噪声配置
 noise:
@@ -201,6 +233,24 @@ noise:
     distribution: "gaussian"
   height:
     range: [0., 0.02]
+    operation: "additive"
+    distribution: "gaussian"
+  
+  # 视觉系统噪声 - 模拟摄像头晃动和视觉感知误差
+  vision_position:
+    range: [0., 0.05]           # 位置检测噪声：±20cm
+    operation: "additive"
+    distribution: "gaussian"
+  vision_distance:
+    range: [0., 0.03]           # 距离检测噪声：±3cm
+    operation: "additive"  
+    distribution: "gaussian"
+  vision_direction:
+    range: [0., 0.05]           # 方向检测噪声：±2cm在单位向量上
+    operation: "additive"
+    distribution: "gaussian"
+  imu_velocity:
+    range: [0., 0.05]
     operation: "additive"
     distribution: "gaussian"
     
@@ -281,3 +331,29 @@ randomization:
     range: [0.98, 1.02]
     operation: "scaling"
     distribution: "uniform"
+
+# 算法配置 - 提高训练稳定性
+algorithm:
+  learning_rate: 5.e-6            # 降低学习率防止梯度爆炸
+  gamma: 0.99                     # 稍微降低gamma
+  lam: 0.95
+  bound_coef: 1.0
+  entropy_coef: -0.01             # 降低熵惩罚防止过度探索
+  symmetric_coef: 10.
+  desired_kl: 0.005               # 更严格的KL约束
+  max_grad_norm: 0.5              # 强制梯度裁剪
+
+# 训练配置
+runner:
+  horizon_length: 80              # 增加到80步，能够覆盖大部分完整的进球过程
+  mini_epochs: 20
+  save_interval: 100
+  use_wandb: false
+
+# 查看器配置
+viewer:
+  pos: [10., 10., 4.]
+  lookat: [0., 0., 0.]
+  record_video: false
+  record_interval: 5
+  record_env_idx: 0

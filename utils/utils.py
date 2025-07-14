@@ -1,6 +1,14 @@
 import torch
 import numpy as np
 
+def check_tensor(tensor, device=None):
+    if isinstance(tensor, torch.Tensor):
+        return tensor
+    else:
+        if device is not None:
+            return torch.tensor(tensor, device=device)
+        else:
+            return torch.tensor(tensor)
 
 def apply_randomization(tensor, params, return_noise=False):
     if params == None:

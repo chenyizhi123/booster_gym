@@ -7,13 +7,17 @@ import random
 import time
 import signal
 import imageio
+
+# 先导入envs（包含isaacgym）
+from envs import *
+
+# 然后导入torch相关模块
 import torch
 import torch.nn.functional as F
 from utils.model import *
 from utils.buffer import ExperienceBuffer
 from utils.utils import discount_values, surrogate_loss
 from utils.recorder import Recorder
-from envs import *
 
 
 
@@ -57,13 +61,13 @@ class HRLRunner:
     def _get_args(self):
         parser = argparse.ArgumentParser()
         parser.add_argument("--task", required=True, type=str, help="Name of the task to run.")
-        parser.add_argument("--checkpoint", type=str, help="Path of the model checkpoint to load.")
-        parser.add_argument("--num_envs", type=int, help="Number of environments to create.")
-        parser.add_argument("--headless", type=bool, help="Run headless without creating a viewer window.")
-        parser.add_argument("--sim_device", type=str, help="Device for physics simulation.")
-        parser.add_argument("--rl_device", type=str, help="Device for the RL algorithm.")
-        parser.add_argument("--seed", type=int, help="Random seed.")
-        parser.add_argument("--max_iterations", type=int, help="Maximum number of training iterations.")
+        parser.add_argument("--checkpoint", type=str, help="Path of the model checkpoint to load. Overrides config file if provided.")
+        parser.add_argument("--num_envs", type=int, help="Number of environments to create. Overrides config file if provided.")
+        parser.add_argument("--headless", type=bool, help="Run headless without creating a viewer window. Overrides config file if provided.")
+        parser.add_argument("--sim_device", type=str, help="Device for physics simulation. Overrides config file if provided.")
+        parser.add_argument("--rl_device", type=str, help="Device for the RL algorithm. Overrides config file if provided.")
+        parser.add_argument("--seed", type=int, help="Random seed. Overrides config file if provided.")
+        parser.add_argument("--max_iterations", type=int, help="Maximum number of training iterations. Overrides config file if provided.")
         self.args = parser.parse_args()
 
     def _update_cfg_from_args(self):
@@ -129,10 +133,7 @@ class HRLRunner:
                     with torch.no_grad():
                         dist = self.model.act(obs)
                         # 采样动作（3维速度增量）
-                        act = dist.sample()
-                        # 限制动作范围到[-1, 1]
-                        act = torch.clamp(act, -1.0, 1.0)
-                    
+                        act = dist.sample()    
                     # 执行动作
                     obs, rew, done, infos = self.env.step(act)
                     obs, rew, done = obs.to(self.device), rew.to(self.device), done.to(self.device)
@@ -206,6 +207,11 @@ class HRLRunner:
                     # 反向传播
                     self.optimizer.zero_grad()
                     loss.backward()
+                    
+                    # 梯度监控 - 每10个训练迭代记录一次
+                    if it % 10 == 0:  # 只在第一个mini_epoch记录以减少开销
+                        self.recorder.record_gradients(self.model, it, prefix="model")
+                    
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                     self.optimizer.step()
 
@@ -215,7 +221,7 @@ class HRLRunner:
                             torch.log(dist.scale / old_dist.scale)
                             + 0.5 * (torch.square(old_dist.scale) + torch.square(dist.loc - old_dist.loc)) / torch.square(dist.scale)
                             - 0.5,
-                            axis=-1,
+                            dim=-1,
                         )
                         kl_mean = torch.mean(kl)
                         if kl_mean > self.cfg["algorithm"]["desired_kl"] * 2:
@@ -292,7 +298,6 @@ class HRLRunner:
             with torch.no_grad():
                 dist = self.model.act(obs)
                 act = dist.loc  # 使用均值而不是采样
-                act = torch.clamp(act, -1.0, 1.0)
                 obs, rew, done, infos = self.env.step(act)
                 obs, rew, done = obs.to(self.device), rew.to(self.device), done.to(self.device)
             
