@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--task","approach_hrl"]
+            "args": ["--config","T1.yaml","--net","192.168.10.101"]
         }
     ]
 }

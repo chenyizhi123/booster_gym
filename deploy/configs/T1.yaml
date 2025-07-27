@@ -36,7 +36,9 @@ common:
 policy:
   policy_path: "./models/T1.pt"
   num_actions: 12
+  policy_path_hrl: "./models/T1_hrl.pt"
   num_observations: 47
+  num_observations_hrl: 11
   gait_frequency: 1
 
   normalization:
@@ -46,6 +48,7 @@ policy:
     dof_pos: 1.0
     dof_vel: 0.1
     clip_actions: 1.
+    clip_actions_hrl: 0.2
 
   control:
     action_scale: 1.

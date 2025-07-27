@@ -58,7 +58,10 @@ class Controller:
         self.dof_target = np.zeros(B1JointCnt, dtype=np.float32)
         self.filtered_dof_target = np.zeros(B1JointCnt, dtype=np.float32)
         self.dof_pos_latest = np.zeros(B1JointCnt, dtype=np.float32)
-
+        self.vx = 0
+        self.vy = 0
+        self.vyaw = 0
+        self.control_time = 0
     def _init_communication(self) -> None:
         try:
             self.low_cmd = LowCmd()
@@ -148,16 +151,25 @@ class Controller:
         self.next_inference_time += self.policy.get_policy_interval()
         self.logger.debug(f"Next start time: {self.next_inference_time}")
         start_time = time.perf_counter()
-
+        if self.control_time%10 == 0:
+            self.vx,self.vy,self.vyaw=self.policy.inference_hrl(
+                ball_position=self.ball_position,
+                goal_dir=self.goal_dir,
+                dof_vel=self.dof_vel,
+                ball_distance=self.ball_distance,
+                goal_distance=self.goal_distance,
+                last_commands=self.last_commands
+            )
+        self.control_time += 1
         self.dof_target[:] = self.policy.inference(
             time_now=time_now,
             dof_pos=self.dof_pos,
             dof_vel=self.dof_vel,
             base_ang_vel=self.base_ang_vel,
             projected_gravity=self.projected_gravity,
-            vx=self.remoteControlService.get_vx_cmd(),
-            vy=self.remoteControlService.get_vy_cmd(),
-            vyaw=self.remoteControlService.get_vyaw_cmd(),
+            vx=self.vx,
+            vy=self.vy,
+            vyaw=self.vyaw,
         )
 
         inference_time = time.perf_counter()

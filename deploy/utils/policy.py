@@ -8,6 +8,8 @@ class Policy:
             self.cfg = cfg
             self.policy = torch.jit.load(self.cfg["policy"]["policy_path"])
             self.policy.eval()
+            self.policy_hrl=torch.jit.load(self.cfg["policy"]["policy_path_hrl"])
+            self.policy_hrl.eval()
         except Exception as e:
             print(f"Failed to load policy: {e}")
             raise
@@ -71,3 +73,19 @@ class Policy:
         self.dof_targets[11:] += self.cfg["policy"]["control"]["action_scale"] * self.actions
 
         return self.dof_targets
+    def inference_hrl(self, ball_position, goal_dir, dof_vel, ball_distance, goal_distance,last_commands):
+
+        self.ob_buf_hrl[0:3] = ball_position
+        self.ob_buf_hrl[3:6] = goal_dir
+        ball_distance = np.linalg.norm(self.ob_buf_hrl[0:2])
+        goal_distance = np.linalg.norm(self.ob_buf_hrl[3:5])
+        self.ob_buf_hrl[6] = ball_distance
+        self.ob_buf_hrl[7] = goal_distance
+        self.ob_buf_hrl[8:11] = last_commands
+        self.actions_hrl[:] = self.policy_hrl(torch.from_numpy(self.obs).unsqueeze(0)).detach().numpy()
+        self.actions_hrl[:] = np.clip(
+            self.actions_hrl,
+            -self.cfg["policy"]["normalization"]["clip_actions_hrl"],
+            self.cfg["policy"]["normalization"]["clip_actions_hrl"],
+        )    
+        return self.actions_hrl
