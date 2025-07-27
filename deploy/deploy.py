@@ -62,6 +62,18 @@ class Controller:
         self.vy = 0
         self.vyaw = 0
         self.control_time = 0
+        
+        # Initialize HRL related variables
+        self.ball_position = np.zeros(3, dtype=np.float32)
+        self.goal_dir = np.zeros(3, dtype=np.float32)
+        self.ball_distance = 0.0
+        self.goal_distance = 0.0
+        self.last_commands = np.zeros(3, dtype=np.float32)
+        
+        # Emergency stop state
+        self.emergency_stop = False
+        self.manual_control_active = False
+        self.last_control_state = None  # Track state changes to reduce print frequency
     def _init_communication(self) -> None:
         try:
             self.low_cmd = LowCmd()
@@ -147,20 +159,52 @@ class Controller:
         if time_now < self.next_inference_time:
             time.sleep(0.001)
             return
-        self.logger.debug("-----------------------------------------------------")
-        self.next_inference_time += self.policy.get_policy_interval()
-        self.logger.debug(f"Next start time: {self.next_inference_time}")
+        
         start_time = time.perf_counter()
-        if self.control_time%10 == 0:
-            self.vx,self.vy,self.vyaw=self.policy.inference_hrl(
-                ball_position=self.ball_position,
-                goal_dir=self.goal_dir,
-                dof_vel=self.dof_vel,
-                ball_distance=self.ball_distance,
-                goal_distance=self.goal_distance,
-                last_commands=self.last_commands
-            )
-        self.control_time += 1
+        
+        # Check for emergency stop or manual control
+        emergency_stop_active = self.remoteControlService.is_emergency_stop_active()
+        manual_control_active = self.remoteControlService.is_manual_control_active()
+        
+        # Debug output (can be removed later)
+        if self.control_time % 100 == 0:  # Print every 100 cycles to avoid spam
+            self.logger.debug(f"Control state - Emergency stop: {emergency_stop_active}, Manual control: {manual_control_active}")
+        
+        if emergency_stop_active:
+            # Emergency stop: set all velocities to 0 and keep them at 0
+            self.vx = 0
+            self.vy = 0
+            self.vyaw = 0
+            if self.last_control_state != "emergency_stop":
+                print(f"EMERGENCY STOP ACTIVATED: All movement halted. Press 'c' to resume HRL control.")
+                self.last_control_state = "emergency_stop"
+        elif manual_control_active:
+            # Manual control: use remote commands
+            self.vx = self.remoteControlService.get_vx_cmd()
+            self.vy = self.remoteControlService.get_vy_cmd()
+            self.vyaw = self.remoteControlService.get_vyaw_cmd()
+            if self.last_control_state != "manual_control":
+                print(f"Manual control activated: vx={self.vx:.2f}, vy={self.vy:.2f}, vyaw={self.vyaw:.2f}")
+                self.last_control_state = "manual_control"
+        else:
+            # Normal HRL control
+            if self.last_control_state != "hrl_control":
+                print(f"HRL control active")
+                self.last_control_state = "hrl_control"
+            self.logger.debug("-----------------------------------------------------")
+            self.next_inference_time += self.policy.get_policy_interval()
+            self.logger.debug(f"Next start time: {self.next_inference_time}")
+            if self.control_time % 10 == 0:
+                self.vx, self.vy, self.vyaw = self.policy.inference_hrl(
+                    ball_position=self.ball_position,
+                    goal_dir=self.goal_dir,
+                    dof_vel=self.dof_vel,
+                    ball_distance=self.ball_distance,
+                    goal_distance=self.goal_distance,
+                    last_commands=self.last_commands
+                )
+            self.control_time += 1
+        
         self.dof_target[:] = self.policy.inference(
             time_now=time_now,
             dof_pos=self.dof_pos,

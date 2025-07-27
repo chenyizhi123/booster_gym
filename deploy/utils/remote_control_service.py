@@ -46,11 +46,15 @@ class RemoteControlService:
         self.vx = 0.0
         self.vy = 0.0
         self.vyaw = 0.0
+        
+        # Initialize emergency stop and manual control states
+        self.emergency_stop_pressed = False
+        self.manual_control_active = False
 
     def get_operation_hint(self) -> str:
         if hasattr(self, "joystick") and getattr(self, "joystick") != None:
             return "Left axis for forward/backward/left/right, right axis for rotation left/right"
-        return "Press 'w'/'s' to increase/decrease vx; Press 'a'/'d' to increase/decrease vy; Press 'q'/'e' to increase/decrease vyaw, press 'Space' to stop."
+        return "Press 'w'/'s' to increase/decrease vx; Press 'a'/'d' to increase/decrease vy; Press 'q'/'e' to increase/decrease vyaw, press 'Space' to emergency stop, press 'c' to resume HRL control."
 
     def get_custom_mode_operation_hint(self) -> str:
         if hasattr(self, "joystick") and getattr(self, "joystick") != None:
@@ -67,6 +71,8 @@ class RemoteControlService:
         self.joystick_runner = None
         self.keyboard_start_custom_mode = False
         self.keyboard_start_rl_gait = False
+        self.emergency_stop_pressed = False
+        self.manual_control_active = False
 
     def _start_keyboard_thread(self):
         self.keyboard_runner = threading.Thread(target=listen_keyboard, args=(self._handle_keyboard_press,))
@@ -79,40 +85,61 @@ class RemoteControlService:
         if key == "r":
             self.keyboard_start_rl_gait = True
         if key == "w":
+            self.manual_control_active = True
+            self.emergency_stop_pressed = False
             old_x = self.vx
             self.vx += 0.1
             self.vx = min(self.vx, self.config.max_vx)
             print(f"VX: {old_x:.1f} => {self.vx:.1f}")
         if key == "s":
+            self.manual_control_active = True
+            self.emergency_stop_pressed = False
             old_x = self.vx
             self.vx -= 0.1
             self.vx = max(self.vx, -self.config.max_vx)
             print(f"VX: {old_x:.1f} => {self.vx:.1f}")
         if key == "a":
+            self.manual_control_active = True
+            self.emergency_stop_pressed = False
             old_y = self.vy
             self.vy += 0.1
             self.vy = min(self.vy, self.config.max_vy)
             print(f"VY: {old_y:.1f} => {self.vy:.1f}")
         if key == "d":
+            self.manual_control_active = True
+            self.emergency_stop_pressed = False
             old_y = self.vy
             self.vy -= 0.1
             self.vy = max(self.vy, -self.config.max_vy)
             print(f"VY: {old_y:.1f} => {self.vy:.1f}")
         if key == "q":
+            self.manual_control_active = True
+            self.emergency_stop_pressed = False
             old_yaw = self.vyaw
             self.vyaw += 0.1
             self.vyaw = min(self.vyaw, self.config.max_vyaw)
             print(f"VYaw: {old_yaw:.1f} => {self.vyaw:.1f}")
         if key == "e":
+            self.manual_control_active = True
+            self.emergency_stop_pressed = False
             old_yaw = self.vyaw
             self.vyaw -= 0.1
             self.vyaw = max(self.vyaw, -self.config.max_vyaw)
             print(f"VYaw: {old_yaw:.1f} => {self.vyaw:.1f}")
         if key == "space":
+            self.emergency_stop_pressed = True
+            self.manual_control_active = True
             self.vx = 0
             self.vy = 0
             self.vyaw = 0
-            print(f"FULL STOP")
+            print(f"EMERGENCY STOP ACTIVATED - Press 'c' to resume HRL control")
+        if key == "c":
+            self.emergency_stop_pressed = False
+            self.manual_control_active = False
+            self.vx = 0
+            self.vy = 0
+            self.vyaw = 0
+            print(f"HRL control RESUMED")
 
     def _init_joystick(self) -> None:
         """Initialize and validate joystick connection using evdev."""
@@ -226,6 +253,20 @@ class RemoteControlService:
         """Get yaw velocity command."""
         with self._lock:
             return self.vyaw
+
+    def is_emergency_stop_active(self) -> bool:
+        """Check if emergency stop is currently active."""
+        if hasattr(self, "joystick") and getattr(self, "joystick") != None:
+            # For joystick, we'd need to implement emergency stop detection
+            return False
+        return getattr(self, 'emergency_stop_pressed', False)
+
+    def is_manual_control_active(self) -> bool:
+        """Check if manual control is currently active."""
+        if hasattr(self, "joystick") and getattr(self, "joystick") != None:
+            # For joystick, check if any axis is being moved
+            return (abs(self.vx) > 0.01 or abs(self.vy) > 0.01 or abs(self.vyaw) > 0.01)
+        return getattr(self, 'manual_control_active', False)
 
     def close(self):
         """Clean up resources."""

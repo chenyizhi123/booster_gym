@@ -23,7 +23,7 @@ hrl:
   
   # t1模型配置
   t1_model:
-    checkpoint_path: "/data/home/chenyz/home/T1_1/booster_gym/logs/2025-07-06-22-12-19/nn/model_44700.pth"  # 设置为-1自动寻找最新模型，或指定具体路径
+    checkpoint_path: "model_44600.pth"  # 设置为-1自动寻找最新模型，或指定具体路径
     
 
   
