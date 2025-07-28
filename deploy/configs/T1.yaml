@@ -57,6 +57,14 @@ policy:
 mech:
   parallel_mech_indexes: [15, 16, 21, 22]
 
+position_subscriber:
+  communication_type: "ros2"  # Options: "udp", "tcp", "ros2"
+  host: "127.0.0.1"  # IP address to bind to (for socket communication)
+  port: 8888  # Port to listen on (for socket communication)
+  ball_topic: "ball_position"  # ROS2 topic for ball position
+  goal_topic: "goal_position"  # ROS2 topic for goal position
+  connection_timeout: 5.0  # seconds
+
 prepare:
   stiffness: [
     5., 5.,

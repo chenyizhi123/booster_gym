@@ -32,6 +32,10 @@ class Policy:
         self.obs = np.zeros(self.cfg["policy"]["num_observations"], dtype=np.float32)
         self.actions = np.zeros(self.cfg["policy"]["num_actions"], dtype=np.float32)
         self.policy_interval = self.cfg["common"]["dt"] * self.cfg["policy"]["control"]["decimation"]
+        
+        # 添加HRL相关变量
+        self.ob_buf_hrl = np.zeros(self.cfg["policy"]["num_observations_hrl"], dtype=np.float32)
+        self.actions_hrl = np.zeros(3, dtype=np.float32)  # HRL输出3个动作：vx, vy, vyaw
 
     def inference(self, time_now, dof_pos, dof_vel, base_ang_vel, projected_gravity, vx, vy, vyaw):
         self.gait_process = np.fmod(time_now * self.gait_frequency, 1.0)
@@ -73,16 +77,16 @@ class Policy:
         self.dof_targets[11:] += self.cfg["policy"]["control"]["action_scale"] * self.actions
 
         return self.dof_targets
-    def inference_hrl(self, ball_position, goal_dir, dof_vel, ball_distance, goal_distance,last_commands):
-
+    def inference_hrl(self, ball_position, goal_dir, dof_vel, ball_distance, goal_distance, last_commands):
+        # 填充HRL观察空间
         self.ob_buf_hrl[0:3] = ball_position
         self.ob_buf_hrl[3:6] = goal_dir
-        ball_distance = np.linalg.norm(self.ob_buf_hrl[0:2])
-        goal_distance = np.linalg.norm(self.ob_buf_hrl[3:5])
         self.ob_buf_hrl[6] = ball_distance
         self.ob_buf_hrl[7] = goal_distance
         self.ob_buf_hrl[8:11] = last_commands
-        self.actions_hrl[:] = self.policy_hrl(torch.from_numpy(self.obs).unsqueeze(0)).detach().numpy()
+        
+        # 使用HRL策略网络进行推理
+        self.actions_hrl[:] = self.policy_hrl(torch.from_numpy(self.ob_buf_hrl).unsqueeze(0)).detach().numpy()
         self.actions_hrl[:] = np.clip(
             self.actions_hrl,
             -self.cfg["policy"]["normalization"]["clip_actions_hrl"],

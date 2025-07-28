@@ -20,6 +20,7 @@ from utils.remote_control_service import RemoteControlService
 from utils.rotate import rotate_vector_inverse_rpy
 from utils.timer import TimerConfig, Timer
 from utils.policy import Policy
+from utils.simple_position_subscriber import PositionSubscriber
 
 
 class Controller:
@@ -35,10 +36,17 @@ class Controller:
         # Initialize components
         self.remoteControlService = RemoteControlService()
         self.policy = Policy(cfg=self.cfg)
+        
+        # 🔥 初始化位置订阅器
+        self.position_subscriber = PositionSubscriber()
 
         self._init_timer()
         self._init_low_state_values()
         self._init_communication()
+        
+        # 🚀 启动位置订阅器
+        self.position_subscriber.start()
+        
         self.publish_runner = None
         self.running = True
 
@@ -74,6 +82,8 @@ class Controller:
         self.emergency_stop = False
         self.manual_control_active = False
         self.last_control_state = None  # Track state changes to reduce print frequency
+        
+        # HRL只需要球和球门的位置，不需要机器人位置估计
     def _init_communication(self) -> None:
         try:
             self.low_cmd = LowCmd()
@@ -108,11 +118,39 @@ class Controller:
                 self.dof_pos[i] = motor.q
                 self.dof_vel[i] = motor.dq
 
+    def _update_hrl_variables(self):
+        """🎯 更新HRL所需的变量"""
+        # 从位置订阅器获取最新位置数据
+        ball_pos = self.position_subscriber.get_ball_position()
+        goal_pos = self.position_subscriber.get_goal_position()
+        
+        # 转换为numpy数组
+        self.ball_position[:] = ball_pos
+        
+        # 计算球门方向
+        goal_dir = self.position_subscriber.get_goal_direction()
+        self.goal_dir[:] = goal_dir
+        
+        # 计算距离
+        self.ball_distance = self.position_subscriber.get_ball_distance()
+        self.goal_distance = self.position_subscriber.get_goal_distance()
+        
+        # 调试输出 (可选)
+        if self.control_time % 100 == 0:  # 每100次控制循环打印一次
+            self.logger.debug(f"🏀 球位置: {ball_pos}")
+            self.logger.debug(f"🥅 门位置: {goal_pos}")
+            self.logger.debug(f"📏 球距离: {self.ball_distance:.2f}")
+            self.logger.debug(f"📏 门距离: {self.goal_distance:.2f}")
+
     def _send_cmd(self, cmd: LowCmd):
         self.low_cmd_publisher.Write(cmd)
 
     def cleanup(self) -> None:
         """Cleanup resources."""
+        # 🛑 停止位置订阅器
+        if hasattr(self, "position_subscriber"):
+            self.position_subscriber.stop()
+            
         self.remoteControlService.close()
         if hasattr(self, "low_cmd_publisher"):
             self.low_cmd_publisher.CloseChannel()
@@ -194,6 +232,10 @@ class Controller:
             self.logger.debug("-----------------------------------------------------")
             self.next_inference_time += self.policy.get_policy_interval()
             self.logger.debug(f"Next start time: {self.next_inference_time}")
+            
+            # 🎯 更新HRL变量
+            self._update_hrl_variables()
+            
             if self.control_time % 10 == 0:
                 self.vx, self.vy, self.vyaw = self.policy.inference_hrl(
                     ball_position=self.ball_position,
@@ -203,6 +245,8 @@ class Controller:
                     goal_distance=self.goal_distance,
                     last_commands=self.last_commands
                 )
+                # 📝 更新上次的命令
+                self.last_commands[:] = [self.vx, self.vy, self.vyaw]
             self.control_time += 1
         
         self.dof_target[:] = self.policy.inference(
