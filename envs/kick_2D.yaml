@@ -13,13 +13,26 @@ env:
   num_privileged_obs: 20
   num_actions: 12
   env_spacing: 15.  # not used with plane terrain
+  
+  # AMP相关环境配置
+  reference_state_initialization: false   # 是否启用AMP参考状态初始化（设置为true启用AMP）
+  amp_motion_files: ["data/expert_kick_data.yaml"]  # 专家动作数据文件列表
 
-
+# 训练运行器配置
 runner:
-  horizon_length: 24
-  mini_epochs: 20
-  save_interval: 100
-  use_wandb: false
+  algorithm_class_name: "AMPPPO"             # 算法类型 - 设置为"AMPPPO"启用AMP训练
+  policy_class_name: "ActorCritic"        # 策略网络类型
+  num_steps_per_env: 24                   # 每个环境的步数
+  horizon_length: 24                      # 训练轨迹长度
+  mini_epochs: 20                         # 每次更新的mini epoch数量
+  save_interval: 1000                     # 模型保存间隔
+  use_wandb: false                        # 是否使用W&B记录训练过程
+  
+  # AMP特定参数（仅在启用AMP时使用）
+  amp_num_preload_transitions: 2000       # 预加载的专家转换数量
+  amp_reward_coef: 2.0                    # AMP奖励系数
+  amp_discr_hidden_dims: [1024, 512]      # 判别器隐藏层维度
+  amp_task_reward_lerp: 0.3               # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
 
 viewer:
   pos: [3., -3., 2.]  # [m]
@@ -29,13 +42,37 @@ viewer:
   record_env_idx: 0
 
 algorithm:
-  learning_rate: 1.e-5
-  gamma: 0.995
-  lam: 0.95
+  class_name: PPO                        # 算法类型 - 设置为AMPPPO启用AMP
+  learning_rate: 1.e-4                   # 学习率（AMP通常需要稍低的学习率）
+  gamma: 0.995                           # 折扣因子
+  lam: 0.95                              # GAE lambda
   bound_coef: 1.0
-  entropy_coef: -0.01
+  entropy_coef: -0.01                    # 熵奖励系数  
   symmetric_coef: 10.
-  desired_kl: 0.01
+  num_learning_epochs: 5                 # 学习epoch数量
+  num_mini_batches: 4                    # Mini batch数量
+  max_grad_norm: 1.0                     # 梯度裁剪
+  use_clipped_value_loss: true           # 使用裁剪的价值损失
+  schedule: "adaptive"                   # 学习率调度策略
+  desired_kl: 0.01                      # 期望的KL散度
+  clip_param: 0.2                       # PPO clip参数
+  value_loss_coef: 1.0                  # 价值函数损失系数
+  
+  # AMP特定的replay buffer（仅在启用AMP时使用）
+  amp_replay_buffer_size: 100000         # AMP重放缓冲区大小
+
+# 策略网络配置
+policy:
+  # Actor网络
+  actor_hidden_dims: [512, 256, 128]     # Actor隐藏层维度
+  
+  # Critic网络  
+  critic_hidden_dims: [512, 256, 128]    # Critic隐藏层维度
+  
+  # 激活函数和初始化
+  activation: 'elu'                      # 激活函数类型
+  init_noise_std: 1.0                   # 动作噪声初始标准差
+
 
 sim:
   dt: 0.002
@@ -317,3 +354,29 @@ rewards:
   feet_distance_ref: 0.2
 other:
   max_yaw_deviation_deg: 15.0
+
+# ===== AMP相关配置 =====
+# AMP专家数据处理参数
+expert_data:
+  time_between_frames: 0.002             # 帧间时间间隔（应该与sim dt匹配）
+  preload_transitions: true              # 是否预加载转换数据
+
+# 训练监控和调试
+debug:
+  log_amp_losses: true                   # 记录AMP损失
+  log_discriminator_accuracy: true       # 记录判别器准确率
+  visualize_amp_rewards: false          # 可视化AMP奖励（调试时使用）
+  save_discriminator_grads: false       # 保存判别器梯度（调试时使用）
+
+# 评估配置
+evaluation:
+  eval_interval: 1000                    # 评估间隔
+  num_eval_episodes: 100                 # 评估episode数量
+  eval_with_amp: true                    # 评估时是否使用AMP奖励
+
+# ===== AMP训练使用说明 =====
+# 要启用AMP训练，请修改以下设置：
+# 1. env -> reference_state_initialization: true
+# 2. runner -> algorithm_class_name: "AMPPPO"
+# 3. algorithm -> class_name: "AMPPPO"
+# 4. 确保有专家数据文件 data/expert_kick_data.yaml

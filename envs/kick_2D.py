@@ -29,6 +29,23 @@ class kick_2D(BaseTask):
         self.gym.prepare_sim(self.sim)
         self._init_buffers()
         self._prepare_reward_function()
+        
+        # AMP相关初始化
+        self._amp_mode = False  # 默认关闭AMP模式
+        self.amp_obs_buf = None  # 将在第一次调用时初始化
+        
+        # 如果配置文件中启用了AMP参考状态初始化，则加载AMP数据
+        if self.cfg.get('env', {}).get('reference_state_initialization', False):
+            from rsl_rl.datasets.motion_loader import AMPLoader
+            amp_motion_files = self.cfg['env'].get('amp_motion_files', [])
+            if amp_motion_files:
+                self.amp_loader = AMPLoader(motion_files=amp_motion_files, device=self.device, time_between_frames=self.dt)
+                print(f"✓ AMP数据加载器初始化成功，加载了 {len(amp_motion_files)} 个动作文件")
+            else:
+                self.amp_loader = None
+                print("⚠️  未指定amp_motion_files，AMP参考状态初始化将被禁用")
+        else:
+            self.amp_loader = None
 
     def _create_envs(self):
         self.num_envs = self.cfg["env"]["num_envs"]
@@ -459,8 +476,18 @@ class kick_2D(BaseTask):
         # ===== 更新球课程学习 =====
         # self._update_ball_curriculum(env_ids)
         # ==========================
-        self._reset_dofs(env_ids)
-        self._reset_root_states(env_ids)
+        
+        # 根据配置决定使用普通初始化还是AMP初始化
+        if (self.cfg.get('env', {}).get('reference_state_initialization', False) and 
+            self.amp_loader is not None):
+            # 使用AMP参考状态初始化
+            frames = self.amp_loader.get_full_frame_batch(len(env_ids))
+            self._reset_dofs_amp(env_ids, frames)
+            self._reset_root_states_amp(env_ids, frames)
+        else:
+            # 使用普通随机初始化
+            self._reset_dofs(env_ids)
+            self._reset_root_states(env_ids)
 
         self.last_dof_targets[env_ids] = self.dof_pos[env_ids]
         self.last_root_vel[env_ids] = self.robot_root_states[env_ids, 7:13]
@@ -690,6 +717,13 @@ class kick_2D(BaseTask):
         self._compute_reward()
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+        
+        # 保存终止状态的AMP观察（在重置之前）
+        if len(env_ids) > 0:
+            terminal_amp_states = self.get_amp_observations()[env_ids]
+        else:
+            terminal_amp_states = torch.empty(0, self.get_amp_observations_size(), device=self.device)
+        
         self._reset_idx(env_ids)
         self._teleport_robot()
         # self._resample_commands()  # 注释掉：让机器人完全自主移动，不接收外部速度指令
@@ -703,7 +737,9 @@ class kick_2D(BaseTask):
         self.last_feet_pos[:] = self.feet_pos
         # print(f"当前机器人的等级情况: {self.ball_curriculum_level}")
         # print(f"当前机器人的任务成功情况: {self.ball_curriculum_success_count}")
-        return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
+        
+        # 统一返回AMP兼容的接口 - 兼容AMPOnPolicyRunner的期望
+        return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras, env_ids, terminal_amp_states
 
     def _kick_robots(self):
         """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
@@ -1298,4 +1334,163 @@ class kick_2D(BaseTask):
             return torch.where(ball_was_contacted, stability_score, torch.zeros_like(stability_score))
         else:
             return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+
+    # ========== AMP 相关方法 ==========
+    def get_amp_observations(self):
+        """
+        获取AMP观察数据，用于判别器训练
+        参照标准legged robot环境的AMP观察格式
+        
+        Returns:
+            torch.Tensor: AMP观察数据，形状为 [num_envs, amp_obs_dim]
+        """
+        # 计算脚部在基座坐标系中的位置（类似标准环境的foot_positions_in_base_frame）
+        foot_pos = self.feet_pos - self.base_pos.unsqueeze(1)  # 脚部相对于基座的位置
+        foot_pos_flat = foot_pos.view(self.num_envs, -1)  # 展平为 [num_envs, 6]
+        
+        # 基座高度（Z坐标）
+        z_pos = self.base_pos[:, 2:3]  # [num_envs, 1]
+        
+        # 按照标准AMP格式组装观察
+        amp_obs = torch.cat((
+            self.dof_pos,           # 12维：关节位置
+            foot_pos_flat,          # 6维：脚部位置（基座坐标系）
+            self.base_lin_vel,      # 3维：基座线速度（局部坐标系）  
+            self.base_ang_vel,      # 3维：基座角速度（局部坐标系）
+            self.dof_vel,           # 12维：关节速度
+            z_pos,                  # 1维：基座Z坐标（高度）
+        ), dim=-1)
+        
+        # 总维度：12 + 6 + 3 + 3 + 12 + 1 = 37
+        return amp_obs
+
+    def get_amp_observations_size(self):
+        """
+        获取AMP观察的维度大小
+        
+        Returns:
+            int: AMP观察的维度
+        """
+        return 37  # dof_pos(12) + foot_pos(6) + base_lin_vel(3) + base_ang_vel(3) + dof_vel(12) + z_pos(1)
+    
+    def get_terminal_amp_states(self, env_ids):
+        """
+        获取终止状态的AMP观察（当环境重置时）
+        
+        Args:
+            env_ids: 需要重置的环境ID
+            
+        Returns:
+            torch.Tensor: 终止状态的AMP观察
+        """
+        # 对于足球环境，终止状态可以是当前状态的副本
+        # 也可以设置为特定的默认状态
+        return self.get_amp_observations()[env_ids]
+
+    @property  
+    def amp_observation_space(self):
+        """AMP观察空间属性"""
+        return self.get_amp_observations_size()
+    
+    @property
+    def num_amp_obs(self):
+        """兼容性属性：AMP观察维度"""
+        return self.get_amp_observations_size()
+    
+    def set_amp_mode(self, enabled=True):
+        """
+        设置AMP模式开关
+        
+        Args:
+            enabled (bool): 是否启用AMP模式
+        """
+        self._amp_mode = enabled
+        if enabled:
+            print("✓ AMP模式已启用 - 环境将返回AMP训练所需的额外信息")
+        else:
+            print("✓ AMP模式已禁用 - 环境使用普通训练模式")
+    
+    def get_privileged_observations(self):
+        """获取特权观察（与现有方法兼容）"""
+        return self.privileged_obs_buf
+    
+    def get_observations(self):
+        """获取标准观察（与现有方法兼容）"""
+        return self.obs_buf
+    
+    def _reset_dofs_amp(self, env_ids, frames):
+        """
+        使用AMP数据重置DOF位置和速度
+        
+        Args:
+            env_ids: 需要重置的环境ID列表
+            frames: AMP帧数据
+        """
+        try:
+            from rsl_rl.datasets.motion_loader import AMPLoader
+            
+            self.dof_pos[env_ids] = AMPLoader.get_joint_pose_batch(frames)
+            self.dof_vel[env_ids] = AMPLoader.get_joint_vel_batch(frames)
+            
+            env_ids_int32 = env_ids.to(dtype=torch.int32)
+            robot_indices = self.robot_indices[env_ids_int32].to(dtype=torch.int32)
+            self.gym.set_dof_state_tensor_indexed(
+                self.sim, gymtorch.unwrap_tensor(self.dof_state), 
+                gymtorch.unwrap_tensor(robot_indices), len(robot_indices)
+            )
+        except Exception as e:
+            print(f"⚠️  AMP DOF重置失败，使用普通重置: {e}")
+            self._reset_dofs(env_ids)
+    
+    def _reset_root_states_amp(self, env_ids, frames):
+        """
+        使用AMP数据重置机器人根状态
+        
+        Args:
+            env_ids: 需要重置的环境ID列表 
+            frames: AMP帧数据
+        """
+        try:
+            from rsl_rl.datasets.motion_loader import AMPLoader
+            from isaacgym.torch_utils import quat_rotate
+            
+            # 从AMP数据获取根状态
+            root_pos = AMPLoader.get_root_pos_batch(frames)
+            root_orn = AMPLoader.get_root_rot_batch(frames)
+            root_lin_vel = AMPLoader.get_linear_vel_batch(frames)
+            root_ang_vel = AMPLoader.get_angular_vel_batch(frames)
+            
+            # 调整位置到环境原点
+            root_pos[:, :2] = root_pos[:, :2] + self.env_origins[env_ids, :2]
+            
+            # 设置机器人状态
+            robot_actor_indices = self.robot_indices[env_ids]
+            self.root_states[robot_actor_indices, :3] = root_pos
+            self.root_states[robot_actor_indices, 3:7] = root_orn
+            self.root_states[robot_actor_indices, 7:10] = quat_rotate(root_orn, root_lin_vel)
+            self.root_states[robot_actor_indices, 10:13] = quat_rotate(root_orn, root_ang_vel)
+            
+            # 足球位置仍然保持在机器人前方（保持足球任务的逻辑）
+            soccer_actor_indices = self.soccer_indices[env_ids]
+            robot_quat = self.root_states[robot_actor_indices, 3:7]
+            local_ball_offset = torch.tensor([0.25, 0.0, 0.0], device=self.device).expand(len(env_ids), -1)
+            # 生成x方向扰动：[-0.05, 0.05)
+            perturb_x = (torch.rand(len(env_ids), 1, device=self.device) * 0.1) - 0.05
+            # 生成y方向扰动：[-0.1, 0.1)
+            perturb_y = (torch.rand(len(env_ids), 1, device=self.device) * 0.2) - 0.1
+            # z方向不添加扰动，保持0
+            perturb_z = torch.zeros_like(perturb_x)
+            # 组合扰动张量，形状为(len(env_ids), 3)
+            perturb = torch.cat([perturb_x, perturb_y, perturb_z], dim=1)
+            world_ball_offset = quat_rotate(robot_quat, local_ball_offset+perturb)
+            self.root_states[soccer_actor_indices, :3] = self.root_states[robot_actor_indices, :3] + world_ball_offset
+            self.root_states[soccer_actor_indices, 2] = self.env_origins[env_ids, 2] + 0.11
+            self.root_states[soccer_actor_indices, 3:7] = torch.tensor([0, 0, 0, 1], dtype=torch.float, device=self.device)
+            self.root_states[soccer_actor_indices, 7:13] = 0.0
+            
+            self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
+            
+        except Exception as e:
+            print(f"⚠️  AMP根状态重置失败，使用普通重置: {e}")
+            self._reset_root_states(env_ids)
     

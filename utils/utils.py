@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import random
+import os
 
 
 def apply_randomization(tensor, params, return_noise=False):
@@ -58,3 +60,25 @@ def surrogate_loss(old_actions_log_prob, actions_log_prob, advantages, e_clip=0.
     surrogate_clipped = -advantages * torch.clamp(ratio, 1.0 - e_clip, 1.0 + e_clip)
     surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
     return surrogate_loss
+
+
+def set_seed(seed):
+    """
+    设置所有随机数生成器的种子以确保可重复性
+    
+    Args:
+        seed (int): 随机种子
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        # 为了完全的可重复性，设置以下参数（可能会影响性能）
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    
+    print(f"✓ 随机种子已设置为: {seed}")
