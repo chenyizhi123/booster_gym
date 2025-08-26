@@ -6,6 +6,8 @@ T1机器人足球训练 - 直接使用AMPOnPolicyRunner
 支持普通PPO和AMP两种训练模式的自动切换
 """
 
+# Isaac Gym必须在其他模块之前导入
+import isaacgym
 import os
 import sys
 import time
@@ -14,12 +16,15 @@ import argparse
 import numpy as np
 import torch
 
-# Isaac Gym必须在其他模块之前导入
-import isaacgym
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
+
+# 添加rsl_rl模块路径
+rsl_rl_path = os.path.join(current_dir, "rsl_rl")
+if os.path.exists(rsl_rl_path):
+    sys.path.insert(0, rsl_rl_path)
 
 # 导入环境和训练器
 from envs.kick_2D import kick_2D
@@ -46,7 +51,7 @@ def parse_args():
                        help="随机种子")
     parser.add_argument("--max_iterations", type=int, default=None,
                        help="最大训练迭代次数")
-    parser.add_argument("--use_amp", action="store_true",
+    parser.add_argument("--use_amp", default=True,
                        help="使用AMP训练")
     parser.add_argument("--amp_config", type=str, default=None,
                        help="AMP配置文件路径")

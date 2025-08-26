@@ -33,6 +33,7 @@ import os
 from collections import deque
 import statistics
 
+from rsl_rl.algorithms.amp_ppo import AMPPPO
 from torch.utils.tensorboard import SummaryWriter
 import torch
 
@@ -64,7 +65,7 @@ class OnPolicyRunner:
                                                         self.env.num_actions,
                                                         **self.policy_cfg).to(self.device)
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
-        self.alg: PPO = alg_class(actor_critic, device=self.device, **self.alg_cfg)
+        self.alg: AMPPO = alg_class(actor_critic, device=self.device, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
 

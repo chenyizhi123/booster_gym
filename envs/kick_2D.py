@@ -9,6 +9,7 @@ from isaacgym.torch_utils import (
     torch_rand_float,
     get_euler_xyz,
     quat_rotate,
+    quat_mul,
 )
 
 assert gymtorch
@@ -250,7 +251,7 @@ class kick_2D(BaseTask):
         self.ball_local_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.ball_local_velocity = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.ball_angular_velocity = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
-
+        self.has_ball_contact = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device)  # 是否与球接触
         self.goal_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
         self.goal_position[:, 0] = self.env_origins[:, 0]
         self.goal_position[:, 1] = self.env_origins[:, 1] + 4.5
@@ -415,29 +416,54 @@ class kick_2D(BaseTask):
         
         self.shooting_command = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         
-        # 定义四个射门区域的目标点（相对于球门中心的偏移）
-        goal_center = self.goal_position.clone()  # [num_envs, 3]
+        # # 定义四个射门区域的目标点（相对于球门中心的偏移）
+        # goal_center = self.goal_position.clone()  # [num_envs, 3]
         
-        # 球门尺寸：宽2.35m，高0.8m
-        goal_width = self.goal_width  # 2.35
-        goal_height = self.goal_height  # 0.8
+        # # 球门尺寸：宽2.35m，高0.8m
+        # goal_width = self.goal_width  # 2.35
+        # goal_height = self.goal_height  # 0.8
         
-        # 四个区域的目标点（球门坐标系）
-        self.target_zones = torch.zeros(self.num_envs, 4, 3, dtype=torch.float, device=self.device)
+        # # 四个区域的目标点（球门坐标系）
+        # self.target_zones = torch.zeros(self.num_envs, 4, 3, dtype=torch.float, device=self.device)
         
-        for i in range(4):
-            self.target_zones[:, i, :] = goal_center
-            # 将球门宽度等分成4个区域，每个区域宽度为goal_width/4
-            zone_width = goal_width / 4
-            goal_left_edge = goal_center[:, 0] - goal_width / 2  # 球门最左边
-            self.target_zones[:, i, 0] = goal_left_edge + zone_width * (i + 0.5)  # 第i个区域的中心
-            self.target_zones[:, i, 1] = goal_center[:, 1]  # y坐标与球门中心一致
-            self.target_zones[:, i, 2] = goal_center[:, 2]  # z坐标与球门中心一致
+        # for i in range(4):
+        #     self.target_zones[:, i, :] = goal_center
+        #     # 将球门宽度等分成4个区域，每个区域宽度为goal_width/4
+        #     zone_width = goal_width / 4
+        #     goal_left_edge = goal_center[:, 0] - goal_width / 2  # 球门最左边
+        #     self.target_zones[:, i, 0] = goal_left_edge + zone_width * (i + 0.5)  # 第i个区域的中心
+        #     self.target_zones[:, i, 1] = goal_center[:, 1]  # y坐标与球门中心一致
+        #     self.target_zones[:, i, 2] = goal_center[:, 2]  # z坐标与球门中心一致
         
-        # 当前激活的目标点
-        self.active_target_points = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
-        self._update_active_targets()  # 初始化目标点
+        # # 当前激活的目标点
+        # self.active_target_points = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
+        # self._update_active_targets()  # 初始化目标点
+
+
+
+
         
+    def set_kick_commands(self, env_ids, commands):
+        """设置指定环境的踢球指令
+        Args:
+            env_ids: 环境ID列表
+            commands: 踢球指令列表 (0=静止, 1=踢球)
+        """
+        self.shooting_command[env_ids] = commands
+
+    def set_kick_commands(self, env_ids, commands):
+        """设置指定环境的踢球指令
+        Args:
+            env_ids: 环境ID列表
+            commands: 踢球指令列表 (0=静止, 1=踢球)
+        """
+        self.shooting_command[env_ids] = commands
+
+
+
+
+
+
 
     def _prepare_reward_function(self):
         """Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -463,7 +489,6 @@ class kick_2D(BaseTask):
         """Reset all robots"""
         self._reset_idx(torch.arange(self.num_envs, device=self.device))
         # self._resample_commands()  # 注释掉：使用零速度指令
-        self.commands[:] = 0.0  # 设置所有速度指令为零，让机器人完全自主
         self._update_ball_observations()
         self._compute_observations()
         return self.obs_buf, self.extras
@@ -472,7 +497,7 @@ class kick_2D(BaseTask):
         if len(env_ids) == 0:
             return
 
-        self._update_curriculum(env_ids)
+        # self._update_curriculum(env_ids)
         # ===== 更新球课程学习 =====
         # self._update_ball_curriculum(env_ids)
         # ==========================
@@ -499,8 +524,8 @@ class kick_2D(BaseTask):
         self.delay_steps[env_ids] = torch.randint(0, self.cfg["control"]["decimation"], (len(env_ids),), device=self.device)
         self.extras["time_outs"] = self.time_out_buf
         
-        # 随机化射门指令
-        self.randomize_shooting_commands(env_ids)
+        # # 随机化射门指令
+        # self.randomize_shooting_commands(env_ids)
 
     def _reset_dofs(self, env_ids):
         self.dof_pos[env_ids] = apply_randomization(self.default_dof_pos, self.cfg["randomization"].get("init_dof_pos"))
@@ -691,7 +716,7 @@ class kick_2D(BaseTask):
         
         # 更新球受力 (必须在refresh_net_contact_force_tensor之后)
         self.ball_contact_forces[:] = self.all_forces[:, self.num_bodies, :]
-        
+        self._update_ball_contact_state()
         self.robot_root_states=self.root_states[self.robot_indices]
         self.soccer_root_states=self.root_states[self.soccer_indices]
         self.base_pos[:] = self.robot_root_states[:, 0:3]
@@ -741,6 +766,19 @@ class kick_2D(BaseTask):
         # 统一返回AMP兼容的接口 - 兼容AMPOnPolicyRunner的期望
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras, env_ids, terminal_amp_states
 
+    def _update_ball_contact_state(self):
+        """更新球接触状态变量"""
+        # 使用之前定义的接触检测方法
+        has_contact = self._check_ball_contact()
+        self.has_ball_contact[:, 0] = has_contact.float()
+
+    def _check_ball_contact(self):
+        """检查球是否与机器人接触"""
+        contact_threshold = 1.0
+        contact_forces = self.ball_contact_forces
+        has_contact = (contact_forces.norm(dim=-1) > contact_threshold).any(dim=-1)
+        return has_contact
+    
     def _kick_robots(self):
         """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""
         if self.common_step_counter % np.ceil(self.cfg["randomization"]["kick_interval_s"] / self.dt) == 0:
@@ -851,22 +889,19 @@ class kick_2D(BaseTask):
             (
                 apply_randomization(self.projected_gravity, self.cfg["noise"].get("gravity")) * self.cfg["normalization"]["gravity"],
                 apply_randomization(self.base_ang_vel, self.cfg["noise"].get("ang_vel")) * self.cfg["normalization"]["ang_vel"],
-                self.commands[:, :3] * commands_scale,
-                (torch.cos(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),
-                (torch.sin(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),
+                # self.commands[:, :3] * commands_scale,
+                # (torch.cos(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),
+                # (torch.sin(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),
                 apply_randomization(self.dof_pos - self.default_dof_pos, self.cfg["noise"].get("dof_pos")) * self.cfg["normalization"]["dof_pos"],
                 apply_randomization(self.dof_vel, self.cfg["noise"].get("dof_vel")) * self.cfg["normalization"]["dof_vel"],
                 self.actions,
                 # 足球相关观察
                 self.ball_local_position,  # 3维，球相对位置
-                self.ball_local_velocity,  # 3维，球相对速度
                 self.goal_dir_relative,  # 3维，球门方向（单位向量）
-                self.heading_angle,  # 1维，朝向角度
-                self.ball_to_goal_vec,  # 3维，球到球门向量
                 # 射门指令（标量值）
-                self.shooting_command.float().unsqueeze(-1),  # 1维：0=最左, 1=次左, 2=次右, 3=最右
-                # 当前目标点（局部坐标系）
-                quat_rotate_inverse(self.base_quat, self.active_target_points - self.base_pos),  # 3维，目标点相对位置
+                # self.shooting_command.float().unsqueeze(-1),  # 1维：0=踢球，1=stand still
+                # # 当前目标点（局部坐标系）
+                # quat_rotate_inverse(self.base_quat, self.active_target_points - self.base_pos),  # 3维，目标点相对位置
             ),
             dim=-1,
         )
@@ -879,6 +914,8 @@ class kick_2D(BaseTask):
                 self.pushing_torques[:, 0, :] * self.cfg["normalization"]["push_torque"],
                 self.ball_position,  # 3维，球世界位置
                 self.ball_velocity,  # 3维，球世界速度
+                self.has_ball_contact,  # 1维：球接触状态
+                self.ball_contact_forces.view(self.num_envs, -1)  # 3维：球接触力
             ),
             dim=-1,
         )
@@ -1020,99 +1057,74 @@ class kick_2D(BaseTask):
         right_swing = (torch.abs(self.gait_process - 0.75) < 0.5 * self.cfg["rewards"]["swing_period"]) & (self.gait_frequency > 1.0e-8)
         return (left_swing & ~self.feet_contact[:, 0]).float() + (right_swing & ~self.feet_contact[:, 1]).float()
     
-    def _reward_zone_shooting(self):
-        """四区域射门奖励 - 三级奖励系统"""
-        
+    def _reward_ball_goal_scoring(self):
+        """进球奖励 - 核心任务目标"""
         ball_pos = self.ball_position
         goal_center = self.goal_position
         
-        # 检查球是否在球门范围内
-        in_goal_x = torch.abs(ball_pos[:, 0] - goal_center[:, 0]) < self.goal_width / 2  # x方向：在球门宽度内
-        in_goal_y = ball_pos[:, 1] >= goal_center[:, 1]  # y方向：球越过球门线（y >= 4.5）
-        in_goal_z = (ball_pos[:, 2] >= 0) & (ball_pos[:, 2]<= self.goal_height)  # z方向：在球门高度内（0 < z < 0.8）
-        
+        # 检查球是否进球
+        in_goal_x = torch.abs(ball_pos[:, 0] - goal_center[:, 0]) < self.goal_width / 2
+        in_goal_y = ball_pos[:, 1] >= goal_center[:, 1]
+        in_goal_z = (ball_pos[:, 2] >= 0) & (ball_pos[:, 2] <= self.goal_height)
         ball_in_goal = in_goal_x & in_goal_y & in_goal_z
-        goal_envs = torch.where(ball_in_goal)[0]
-        no_goal_envs = torch.where(~ball_in_goal)[0]
         
-        # 初始化奖励
-        reward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        return ball_in_goal.float()  
+    
+    def _reward_ball_contact_timing(self):
+        """球接触时机奖励 - 奖励有效的踢球接触"""
+        # 检测机器人脚部与球的接触
+        ball_contact_force = torch.norm(self.ball_contact_forces, dim=1)
+        has_ball_contact = ball_contact_force > 1.0
         
-        # ===== 1. 没进球 → 扣分 =====
-        no_goal_penalty = self.cfg["rewards"].get("zone_shooting_no_goal", -10.0)
-        reward[no_goal_envs] = no_goal_penalty
+        # 只有在适当距离且朝向球门时，接触才给奖励
+        robot_to_ball_dist = torch.norm(self.ball_position - self.base_pos, dim=1)
+        ball_to_goal_dir = F.normalize(self.goal_position - self.ball_position, dim=1)
+        robot_to_ball_dir = F.normalize(self.ball_position - self.base_pos, dim=1)
         
-        # ===== 2&3. 进球的环境 → 根据区域准确性给奖励 =====
-        if len(goal_envs) > 0:
-            # 计算实际区域 (0=最左, 1=次左, 2=次右, 3=最右)
-            # 球门按x坐标分成4个等宽区域
-            goal_left_edge = goal_center[goal_envs, 0] - self.goal_width / 2  # 球门最左边
-            relative_x = ball_pos[goal_envs, 0] - goal_left_edge  # 球相对于球门最左边的x距离
-            zone_width = self.goal_width / 4  # 每个区域的宽度
-            
-            # 计算球所在的区域 (0-3)
-            actual_zone = torch.clamp(torch.floor(relative_x / zone_width).long(), 0, 3)
-            correct_zone = (actual_zone == self.shooting_command[goal_envs])
-            
-            # 从配置文件读取奖励参数
-            correct_zone_reward = self.cfg["rewards"].get("zone_shooting_correct", 100.0)
-            wrong_zone_reward = self.cfg["rewards"].get("zone_shooting_wrong", 20.0)
-            
-            # 进球且射中正确区域 → 正确区域奖励，进球但射错区域 → 错误区域奖励
-            reward[goal_envs] = torch.where(correct_zone, correct_zone_reward, wrong_zone_reward)
+        # 机器人朝向与球到球门方向的一致性
+        direction_alignment = torch.sum(robot_to_ball_dir * ball_to_goal_dir, dim=1)
         
-        return reward
+        # 在合适距离(0.1-0.5m)且方向正确时接触球给奖励
+        good_contact = has_ball_contact & (robot_to_ball_dist < 0.5) & (direction_alignment > 0.3)
+        
+        return good_contact.float() * 10.0
+    
 
-    def _update_active_targets(self, env_ids=None):
-        """根据射门指令更新激活的目标点 - 张量化版本
-        Args:
-            env_ids: 需要更新的环境ID列表，如果为None则更新所有环境
-        """
-        if env_ids is None:
-            # 更新所有环境
-            env_indices = torch.arange(self.num_envs, device=self.device)
-            self.active_target_points = self.target_zones[env_indices, self.shooting_command]
-        else:
-            # 只更新指定的环境
-            self.active_target_points[env_ids] = self.target_zones[env_ids, self.shooting_command[env_ids]]
+
+
+
+    # def _update_active_targets(self, env_ids=None):
+    #     """根据射门指令更新激活的目标点 - 张量化版本
+    #     Args:
+    #         env_ids: 需要更新的环境ID列表，如果为None则更新所有环境
+    #     """
+    #     if env_ids is None:
+    #         # 更新所有环境
+    #         env_indices = torch.arange(self.num_envs, device=self.device)
+    #         self.active_target_points = self.target_zones[env_indices, self.shooting_command]
+    #     else:
+    #         # 只更新指定的环境
+    #         self.active_target_points[env_ids] = self.target_zones[env_ids, self.shooting_command[env_ids]]
     
-    def set_shooting_commands(self, env_ids, commands):
-        """设置指定环境的射门指令
-        Args:
-            env_ids: 环境ID列表
-            commands: 射门指令列表 (0=最左, 1=次左, 2=次右, 3=最右)
-        """
-        self.shooting_command[env_ids] = commands
-        self._update_active_targets(env_ids)
+
     
-    def randomize_shooting_commands(self, env_ids=None):
-        """随机化射门指令"""
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-        
-        # 随机选择0-3的指令 (0=最左, 1=次左, 2=次右, 3=最右)
-        random_commands = torch.randint(0, 4, (len(env_ids),), device=self.device)
-        self.shooting_command[env_ids] = random_commands
-        self._update_active_targets(env_ids)
+    # def set_shooting_command_single(self, env_id, command):
+    #     """设置单个环境的射门指令
+    #     Args:
+    #         env_id: 环境ID
+    #         command: 射门指令 (0=最左, 1=次左, 2=次右, 3=最右)
+    #     """
+    #     self.shooting_command[env_id] = command
+    #     self._update_active_targets(torch.tensor([env_id], device=self.device))
     
-    def set_shooting_command_single(self, env_id, command):
-        """设置单个环境的射门指令
-        Args:
-            env_id: 环境ID
-            command: 射门指令 (0=最左, 1=次左, 2=次右, 3=最右)
-        """
-        self.shooting_command[env_id] = command
-        self._update_active_targets(torch.tensor([env_id], device=self.device))
-    
-    def get_shooting_command_info(self):
-        """获取射门指令的说明信息"""
-        return {
-            0: "最左区域 (Far-Left)",
-            1: "次左区域 (Mid-Left)", 
-            2: "次右区域 (Mid-Right)",
-            3: "最右区域 (Far-Right)"
-        }
-    
+    # def get_shooting_command_info(self):
+    #     """获取射门指令的说明信息"""
+    #     return {
+    #         0: "最左区域 (Far-Left)",
+    #         1: "次左区域 (Mid-Left)", 
+    #         2: "次右区域 (Mid-Right)",
+    #         3: "最右区域 (Far-Right)"
+    #     }
     def _update_ball_observations(self):
         """更新足球相关的观察变量"""
         # 更新足球状态（从仿真中获取最新值）
@@ -1156,135 +1168,6 @@ class kick_2D(BaseTask):
         cos_angle = torch.clamp(cos_angle, -1.0, 1.0)  # 防止数值误差
         self.heading_angle[:] = torch.acos(cos_angle).unsqueeze(1)
 
-    def _reward_approach_ball(self):
-        """球距离奖励 - 专注于距离管理，方向由alignment奖励处理"""
-        # 计算机器人到球的水平距离
-        dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
-        
-        # ===== 定义距离阈值 =====
-        # approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.5)  # 远距离接近的高斯参数
-        # optimal_distance = self.cfg["rewards"].get("optimal_ball_distance", 0.013)  # 最优操作距离8cm
-        danger_distance = self.cfg["rewards"].get("danger_collision_distance", 0.05)  # 危险距离3cm
-        
-        # ===== 分区域奖励计算 =====
-        
-        # # 1. 远距离区域 (>最优距离) - 高斯接近奖励
-        # far_distance_reward = torch.where(
-        #     dist_to_ball > danger_distance,
-        #     torch.exp(-torch.square(dist_to_ball) / approach_sigma),  # 高斯接近奖励
-        #     torch.zeros_like(dist_to_ball)
-        # # 2. 最优距离区域 (危险距离-最优距离) - 最高奖励
-        # optimal_distance_mask = (dist_to_ball <= optimal_distance) & (dist_to_ball > danger_distance)
-        # optimal_distance_reward = torch.where(
-        #     optimal_distance_mask,
-        #     3 * torch.exp(-2.0 * torch.square(dist_to_ball - optimal_distance)),  # 在最优距离附近给最高奖励
-        #     torch.zeros_like(dist_to_ball)
-        # )
-        
-        # 3. 危险区域 (<危险距离) - 强惩罚
-        total_reward = torch.where(
-            dist_to_ball <= danger_distance,
-            -5.0,  # 强烈惩罚
-            1/(1+dist_to_ball)  # 远距离奖励，距离越远奖励越小
-        )
-        # # ===== 组合最终奖励 =====
-        # total_reward = far_distance_reward  + danger_penalty
-        return total_reward
-    def _reward_approach_v1_ball(self):
-        """球距离奖励 - 专注于距离管理，方向由alignment奖励处理"""
-        # 计算机器人到球的水平距离
-        dist_to_ball = torch.norm(self.ball_local_position[:, :2], dim=1)
-        
-        # ===== 定义距离阈值 =====
-        approach_sigma = self.cfg["rewards"].get("approach_sigma", 0.8)  # 远距离接近的高斯参数
-        # optimal_distance = self.cfg["rewards"].get("optimal_ball_distance", 0.013)  # 最优操作距离8cm
-        danger_distance = self.cfg["rewards"].get("danger_collision_distance", 0.05)  # 危险距离3cm
-        
-        # ===== 分区域奖励计算 =====
-        
-        # # 1. 远距离区域 (>最优距离) - 高斯接近奖励
-        # far_distance_reward = torch.where(
-        #     dist_to_ball > danger_distance,
-        #     torch.exp(-torch.square(dist_to_ball) / approach_sigma),  # 高斯接近奖励
-        #     torch.zeros_like(dist_to_ball)
-        # # 2. 最优距离区域 (危险距离-最优距离) - 最高奖励
-        # optimal_distance_mask = (dist_to_ball <= optimal_distance) & (dist_to_ball > danger_distance)
-        # optimal_distance_reward = torch.where(
-        #     optimal_distance_mask,
-        #     3 * torch.exp(-2.0 * torch.square(dist_to_ball - optimal_distance)),  # 在最优距离附近给最高奖励
-        #     torch.zeros_like(dist_to_ball)
-        # )
-        
-        # 3. 危险区域 (<危险距离) - 强惩罚
-        total_reward = torch.where(
-            dist_to_ball <= danger_distance,
-            -5.0,  # 强烈惩罚
-            torch.exp(-torch.square(dist_to_ball) / approach_sigma)  # 远距离奖励，距离越远奖励越小
-        )
-        # # ===== 组合最终奖励 =====WW
-        # total_reward = far_distance_reward  + danger_penalty
-        return total_reward
-    
-    def _reward_ball_goal_alignment(self):
-        """球门对准奖励 - 确保机器人面向球且在球的后方推向球门"""
-        
-        # ===== 1. 检查机器人是否面向球 =====
-        # 机器人前方向（局部坐标系x轴正方向） 
-        robot_forward = torch.tensor([1.0, 0.0], device=self.device).expand(self.num_envs, -1)
-        # 机器人到球的方向（局部坐标系，只考虑x,y）
-        robot_to_ball = self.ball_local_position[:, :2]
-        robot_to_ball_norm = torch.norm(robot_to_ball, dim=1, keepdim=True) + 1e-8
-        robot_to_ball_unit = robot_to_ball / robot_to_ball_norm
-        
-        # 机器人前方向与到球方向的夹角余弦值
-        facing_ball_cos = torch.sum(robot_forward * robot_to_ball_unit, dim=1)
-        # 只有当机器人朝向球时才给奖励（夹角<90°，即cos>0）
-        facing_ball_reward = torch.clamp(self.cfg['rewards']['facing_ball_reward_weight']*facing_ball_cos, min=0.0)
-        
-        # ===== 2. 检查机器人-球-球门对准 =====
-        # 球到球门的方向（转换到机器人局部坐标系）
-        ball_to_goal_world = self.ball_to_goal_vec
-        ball_to_goal_local_3d = quat_rotate_inverse(self.base_quat, ball_to_goal_world)
-        ball_to_goal_local = ball_to_goal_local_3d[:, :2]
-        ball_to_goal_norm = torch.norm(ball_to_goal_local, dim=1, keepdim=True) + 1e-8
-        ball_to_goal_unit = ball_to_goal_local / ball_to_goal_norm
-        
-        # 机器人到球的方向与球到球门方向的对准度
-        alignment_cos = torch.sum(robot_to_ball_unit * ball_to_goal_unit, dim=1)
-        alignment_reward = torch.clamp(alignment_cos, min=0.0)
-        
-        # ===== 3. 距离调制 =====
-        dist_to_ball = torch.norm(robot_to_ball, dim=1)
-        max_effective_distance = self.cfg["rewards"].get("alignment_max_distance", 2.0)
-        distance_modulation = torch.exp(-torch.clamp(dist_to_ball - max_effective_distance, min=0.0))
-        
-        # ===== 4. 组合奖励 =====
-        # 必须同时满足：面向球 AND 对准球门 AND 距离合适
-        final_reward = facing_ball_reward * alignment_reward * distance_modulation
-        
-        return final_reward
-    def _reward_posture_stability(self):
-        """惩罚过度倾斜 - 包含前后倾和左右倾"""
-        roll, pitch, _ = get_euler_xyz(self.base_quat)
-        
-        # 分别处理不同方向的倾斜
-        abs_pitch = torch.abs(pitch)  # 前后倾
-        abs_roll = torch.abs(roll)    # 左右倾
-        
-        # 前后倾惩罚：较严格（正常行走不应该前后倾太多）
-        pitch_penalty = torch.where(
-            abs_pitch <= 0.25,                             # 14.3度以内安全
-            torch.zeros_like(abs_pitch),                   
-            -3.0 * (abs_pitch - 0.25) ** 2                # 前后倾惩罚系数3.0
-        )
-        
-        # 左右倾惩罚：稍宽松（正常步态需要重心转移）
-        roll_penalty = torch.where(
-            abs_roll <= 0.35,                              # 20度以内安全（给步态留空间）
-            torch.zeros_like(abs_roll),                    
-            -2.0 * (abs_roll - 0.35) ** 2                 # 侧倾惩罚系数2.0（比pitch温和）
-        )
-        return pitch_penalty + roll_penalty
     def _reward_shoot_line(self):
         """射门线奖励 - 球的速度方向与球到目标点方向一致时给奖励"""
         # 球的速度向量
@@ -1310,31 +1193,6 @@ class kick_2D(BaseTask):
         reward[valid_mask] = direction_reward * speed_factor
         return reward
     
-    def _reward_standing(self):
-        """位置移动惩罚 - 简单直接地惩罚机器人的水平移动"""
-        # 只惩罚水平方向的线速度，让机器人保持在原地
-        horizontal_speed = torch.norm(self.base_lin_vel[:, :2], dim=1)  # 水平速度大小
-        return horizontal_speed  # 速度越大惩罚越大
-    
-    def _reward_ball_contact(self):
-        # Penalize excessive ball contact force
-        return torch.norm(self.ball_contact_forces, dim=1)
-
-    def _reward_post_kick_stability(self):
-        # Reward quick stabilization after ball contact
-        ball_was_contacted = torch.norm(self.ball_contact_forces, dim=1) > 5.0  # 检测是否刚踢过球
-        
-        if ball_was_contacted.any():
-            # 踢球后奖励快速稳定：低速度 + 直立姿态
-            stability_score = (
-                torch.exp(-torch.norm(self.base_lin_vel, dim=1)) +  # 线速度越小越好
-                torch.exp(-torch.norm(self.base_ang_vel, dim=1)) +  # 角速度越小越好  
-                torch.exp(-torch.norm(self.projected_gravity[:, :2], dim=1))  # 姿态越直立越好
-            )
-            return torch.where(ball_was_contacted, stability_score, torch.zeros_like(stability_score))
-        else:
-            return torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-
     # ========== AMP 相关方法 ==========
     def get_amp_observations(self):
         """
@@ -1353,15 +1211,15 @@ class kick_2D(BaseTask):
         
         # 按照标准AMP格式组装观察
         amp_obs = torch.cat((
-            self.dof_pos,           # 12维：关节位置
-            foot_pos_flat,          # 6维：脚部位置（基座坐标系）
+            self.dof_pos,           # 23维：关节位置
+            # foot_pos_flat,          # 6维：脚部位置（基座坐标系）
             self.base_lin_vel,      # 3维：基座线速度（局部坐标系）  
             self.base_ang_vel,      # 3维：基座角速度（局部坐标系）
-            self.dof_vel,           # 12维：关节速度
+            self.dof_vel,           # 23维：关节速度
             z_pos,                  # 1维：基座Z坐标（高度）
         ), dim=-1)
-        
-        # 总维度：12 + 6 + 3 + 3 + 12 + 1 = 37
+
+        # 总维度：23 + 3 + 3 + 23 + 1 = 53
         return amp_obs
 
     def get_amp_observations_size(self):
@@ -1371,8 +1229,8 @@ class kick_2D(BaseTask):
         Returns:
             int: AMP观察的维度
         """
-        return 37  # dof_pos(12) + foot_pos(6) + base_lin_vel(3) + base_ang_vel(3) + dof_vel(12) + z_pos(1)
-    
+        return self.get_amp_observations().shape[1]  # dof_pos(12) + foot_pos(6) + base_lin_vel(3) + base_ang_vel(3) + dof_vel(12) + z_pos(1)
+
     def get_terminal_amp_states(self, env_ids):
         """
         获取终止状态的AMP观察（当环境重置时）
@@ -1457,12 +1315,18 @@ class kick_2D(BaseTask):
             # 从AMP数据获取根状态
             root_pos = AMPLoader.get_root_pos_batch(frames)
             root_orn = AMPLoader.get_root_rot_batch(frames)
+            q_z180 = torch.tensor([0.0, 0.0, 1.0, 0.0], device=root_orn.device).repeat(root_orn.shape[0], 1)
+            root_orn = quat_mul(q_z180, root_orn)  #叠加+180°旋转
             root_lin_vel = AMPLoader.get_linear_vel_batch(frames)
             root_ang_vel = AMPLoader.get_angular_vel_batch(frames)
+            position_range=[[-4,4],[-3,3]] 
             
-            # 调整位置到环境原点
+            batch_size = root_pos.shape[0]
+            offsets = np.random.uniform(*zip(*position_range), size=(batch_size, 2))
+            root_pos[:, :2] += offsets
             root_pos[:, :2] = root_pos[:, :2] + self.env_origins[env_ids, :2]
-            
+
+
             # 设置机器人状态
             robot_actor_indices = self.robot_indices[env_ids]
             self.root_states[robot_actor_indices, :3] = root_pos
@@ -1493,4 +1357,11 @@ class kick_2D(BaseTask):
         except Exception as e:
             print(f"⚠️  AMP根状态重置失败，使用普通重置: {e}")
             self._reset_root_states(env_ids)
-    
+    def randomize_shooting_commands(self, env_ids=None):
+        """随机化踢球指令"""
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        
+        # 随机选择0-1的指令 (0=静止, 1=踢球)
+        random_commands = torch.randint(0, 2, (len(env_ids),), device=self.device)
+        self.shooting_command[env_ids] = random_commands

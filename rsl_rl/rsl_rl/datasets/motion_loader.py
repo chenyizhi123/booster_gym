@@ -10,18 +10,18 @@ from pybullet_utils import transformations
 from rsl_rl.utils import utils
 from rsl_rl.datasets import pose3d
 from rsl_rl.datasets import motion_util
-
+import joblib
 
 class AMPLoader:
 
     POS_SIZE = 3
     ROT_SIZE = 4
-    JOINT_POS_SIZE = 12
-    TAR_TOE_POS_LOCAL_SIZE = 12
+    JOINT_POS_SIZE = 23
+    TAR_TOE_POS_LOCAL_SIZE = 6
     LINEAR_VEL_SIZE = 3
     ANGULAR_VEL_SIZE = 3
-    JOINT_VEL_SIZE = 12
-    TAR_TOE_VEL_LOCAL_SIZE = 12
+    JOINT_VEL_SIZE = 23
+    TAR_TOE_VEL_LOCAL_SIZE = 6
 
     ROOT_POS_START_IDX = 0
     ROOT_POS_END_IDX = ROOT_POS_START_IDX + POS_SIZE
