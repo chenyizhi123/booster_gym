@@ -9,14 +9,14 @@ basic:
 
 env:
   num_envs: 4096
-  num_observations: 64
-  num_privileged_obs: 20
-  num_actions: 12
+  num_observations: 81
+  num_privileged_obs: 24
+  num_actions: 23
   env_spacing: 15.  # not used with plane terrain
-  
+  num_amp_obs: 59
   # AMP相关环境配置
   reference_state_initialization: true   # 是否启用AMP参考状态初始化（设置为true启用AMP）
-  amp_motion_files: ["0-rub055_0025_kicking1_poses_reorganized.txt"]  # 专家动作数据文件列表
+  amp_motion_files: ["data//0-rub055_0025_kicking1_poses_reorganized.txt"]  # 专家动作数据文件列表
 
 # 训练运行器配置
 runner:
@@ -33,6 +33,7 @@ runner:
   amp_reward_coef: 2.0                    # AMP奖励系数
   amp_discr_hidden_dims: [1024, 512]      # 判别器隐藏层维度
   amp_task_reward_lerp: 0.3               # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
+  min_normalized_std: [0.1]                 # 最小标准差（防止数值不稳定）
 
 viewer:
   pos: [3., -3., 2.]  # [m]
@@ -42,7 +43,7 @@ viewer:
   record_env_idx: 0
 
 algorithm:
-  class_name: AMPPO                        # 算法类型 - 设置为AMPPPO启用AMP
+  # class_name: AMPPO                        # 算法类型 - 设置为AMPPPO启用AMP
   learning_rate: 1.e-4                   # 学习率（AMP通常需要稍低的学习率）
   gamma: 0.995                           # 折扣因子
   lam: 0.95                              # GAE lambda
@@ -95,7 +96,7 @@ sim:
     contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
 
 asset:
-  file: "resources/T1/T1_locomotion.urdf"
+  file: "resources/T1/T1.urdf"
   mujoco_file: "resources/T1/kick_complete_mujoco.xml"
   name: "approch"
   base_name: "Trunk"
@@ -127,8 +128,8 @@ init_state:
   default_joint_angles: {"Hip_Pitch": -0.2, "Knee_Pitch": 0.4, "Ankle_Pitch": -0.25, "default": 0.} # target angles when action = 0.0
 
 control:
-  stiffness: {"Hip": 200., "Knee": 200., "Ankle": 50.} # [N*m/rad]
-  damping: {"Hip": 5., "Knee": 5., "Ankle": 1.} # [N*m*s/rad]
+  stiffness: {"Hip": 200., "Knee": 200., "Ankle": 50.,"Head": 20.,"Shoulder":35,"Elbow":30,"Waist":30} # [N*m/rad]
+  damping: {"Hip": 5., "Knee": 5., "Ankle": 1., "Head": 1.,"Shoulder":1.,"Elbow":1.,"Waist":1.} # [N*m*s/rad]
   action_scale: 1.
   decimation: 10
 
@@ -321,13 +322,13 @@ rewards:
     feet_swing: 0.0
     approach_ball: 0.0
     ball_goal_alignment: 0
-    posture_stability: 5.0
     approach_v1_ball: 0.0
-    zone_shooting: 5.0
-    shoot_line: 2.0
-    standing: -3.0
-    ball_contact: 1.0
-    post_kick_stability: 3.0
+    shoot_line: 0.0
+    ball_contact: 0.0
+    post_kick_stability: 0.0
+      # ========== 现有的足球任务奖励 (保持不变) ==========
+    ball_goal_scoring: 100.0          # 进球奖励 - 最高优先级
+    ball_contact_timing: 10.0         # 球接触时机奖励
   zone_shooting_no_goal: -10.0
   zone_shooting_correct: 30.0
   zone_shooting_wrong: 20.0
@@ -339,9 +340,9 @@ rewards:
   success_distance_threshold: 0.2 # [m] distance to the ball to count as success
   success_angle_threshold: 10
   alignment_max_distance: 0.1
-  episode_length_s: 20.
-  terminate_height: 0.25
-  terminate_vel: 50.
+  episode_length_s: 20.0
+  terminate_height: 0.35
+  terminate_vel: 100.
   terminate_contacts_on: []
   penalize_contacts_on: ["Trunk", "H1", "H2", "AL", "AR", "Waist", "Hip", "Shank", "Ankle"]
   only_positive_rewards: true # if true negative total rewards are clipped at zero (avoids early termination problems)
@@ -380,3 +381,9 @@ evaluation:
 # 2. runner -> algorithm_class_name: "AMPPPO"
 # 3. algorithm -> class_name: "AMPPPO"
 # 4. 确保有专家数据文件 data/expert_kick_data.yaml
+amp_algorithm:
+  # class_name: AMPPO                        # 算法类型 - 设置为AMPPPO启用AMP
+  entropy_coef : 0.01
+  amp_replay_buffer_size : 1000000
+  num_learning_epochs : 5
+  num_mini_batches : 4

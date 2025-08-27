@@ -53,8 +53,9 @@ class AMPOnPolicyRunner:
                  device='cpu'):
 
         self.cfg=train_cfg["runner"]
-        self.alg_cfg = train_cfg["algorithm"]
+        self.alg_cfg = train_cfg["amp_algorithm"]
         self.policy_cfg = train_cfg["policy"]
+        self.env_cfg=train_cfg["env"]
         self.device = device
         self.env = env
         if self.env.num_privileged_obs is not None:
@@ -74,7 +75,7 @@ class AMPOnPolicyRunner:
         amp_data = AMPLoader(
             device, time_between_frames=self.env.dt, preload_transitions=True,
             num_preload_transitions=train_cfg['runner']['amp_num_preload_transitions'],
-            motion_files=self.cfg["amp_motion_files"])
+            motion_files=self.env_cfg["amp_motion_files"])
         amp_normalizer = Normalizer(amp_data.observation_dim)
         discriminator = AMPDiscriminator(
             amp_data.observation_dim * 2,
@@ -83,11 +84,11 @@ class AMPOnPolicyRunner:
             train_cfg['runner']['amp_task_reward_lerp']).to(self.device)
 
         # self.discr: AMPDiscriminator = AMPDiscriminator()
-        alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
+        alg_class = eval(self.cfg["algorithm_class_name"]) # AMPPO
         min_std = (
             torch.tensor(self.cfg["min_normalized_std"], device=self.device) *
             (torch.abs(self.env.dof_pos_limits[:, 1] - self.env.dof_pos_limits[:, 0])))
-        self.alg: PPO = alg_class(actor_critic, discriminator, amp_data, amp_normalizer, device=self.device, min_std=min_std, **self.alg_cfg)
+        self.alg: AMPPPO = alg_class(actor_critic, discriminator, amp_data, amp_normalizer, device=self.device, min_std=min_std, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
 

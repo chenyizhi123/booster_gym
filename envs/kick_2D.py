@@ -263,7 +263,7 @@ class kick_2D(BaseTask):
         self.ball_to_goal_angle = torch.zeros(self.num_envs,1, dtype=torch.float, device=self.device)  # 球到球门的角度
         self.ball_to_goal_vec= torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)  # 球到球门的向量
         self.heading_angle = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device)  # 添加heading_angle初始化
-
+        self.include_history_steps = None
         # ===== 目标点射门系统 =====
         # 射门目标点（3D坐标）- 统一的目标点系统
         self.shot_target_points = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device)
@@ -834,23 +834,25 @@ class kick_2D(BaseTask):
     def _check_termination(self):
         """Check if environments need to be reset"""
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1.0, dim=1)
-        self.reset_buf = self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
+        self.reset_buf |= self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
         self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
 
         # ========================
         
         # ===== 球出界终止条件 =====
         # 检查球是否超出有效活动区域 [-6, 6] x [-4.5, 4.5]
-        self.soccer_root_states=self.root_states[self.soccer_indices]
-        ball_world_pos = self.soccer_root_states[:, 0:3]  # 球的世界坐标位置
-  
+        self.soccer_root_states = self.root_states[self.soccer_indices]
+        ball_world_pos = self.soccer_root_states[:, 0:3]  # 球的绝对世界坐标位置
         
-        # 检查球是否超出边界
+        # 🔥 修复：计算球相对于环境原点的位置
+        ball_relative_pos = ball_world_pos - self.env_origins  # 球相对于环境原点的位置
+        
+        # 检查球是否超出相对边界
         ball_out_of_bounds = (
-            (ball_world_pos[:, 0] < -6.0) |  # X轴负边界
-            (ball_world_pos[:, 0] > 6.0) |   # X轴正边界
-            (ball_world_pos[:, 1] < -4.5) |  # Y轴负边界
-            (ball_world_pos[:, 1] > 4.5)     # Y轴正边界
+            (ball_relative_pos[:, 0] < -6.0) |  # X轴负边界
+            (ball_relative_pos[:, 0] > 6.0) |   # X轴正边界
+            (ball_relative_pos[:, 1] < -4.5) |  # Y轴负边界
+            (ball_relative_pos[:, 1] > 4.5)     # Y轴正边界
         )
         
         # 球出界时触发重置
@@ -894,10 +896,10 @@ class kick_2D(BaseTask):
                 # (torch.sin(2 * torch.pi * self.gait_process) * (self.gait_frequency > 1.0e-8).float()).unsqueeze(-1),
                 apply_randomization(self.dof_pos - self.default_dof_pos, self.cfg["noise"].get("dof_pos")) * self.cfg["normalization"]["dof_pos"],
                 apply_randomization(self.dof_vel, self.cfg["noise"].get("dof_vel")) * self.cfg["normalization"]["dof_vel"],
-                self.actions,
+                self.actions,#23维
                 # 足球相关观察
                 self.ball_local_position,  # 3维，球相对位置
-                self.goal_dir_relative,  # 3维，球门方向（单位向量）
+                self.goal_dir_relative,  # 3维，
                 # 射门指令（标量值）
                 # self.shooting_command.float().unsqueeze(-1),  # 1维：0=踢球，1=stand still
                 # # 当前目标点（局部坐标系）
@@ -1076,19 +1078,8 @@ class kick_2D(BaseTask):
         ball_contact_force = torch.norm(self.ball_contact_forces, dim=1)
         has_ball_contact = ball_contact_force > 1.0
         
-        # 只有在适当距离且朝向球门时，接触才给奖励
-        robot_to_ball_dist = torch.norm(self.ball_position - self.base_pos, dim=1)
-        ball_to_goal_dir = F.normalize(self.goal_position - self.ball_position, dim=1)
-        robot_to_ball_dir = F.normalize(self.ball_position - self.base_pos, dim=1)
         
-        # 机器人朝向与球到球门方向的一致性
-        direction_alignment = torch.sum(robot_to_ball_dir * ball_to_goal_dir, dim=1)
-        
-        # 在合适距离(0.1-0.5m)且方向正确时接触球给奖励
-        good_contact = has_ball_contact & (robot_to_ball_dist < 0.5) & (direction_alignment > 0.3)
-        
-        return good_contact.float() * 10.0
-    
+        return has_ball_contact.float() 
 
 
 
@@ -1143,7 +1134,7 @@ class kick_2D(BaseTask):
         
         # 3. 计算球门方向（从机器人到球门的方向，局部坐标系）
         goal_relative_world = self.goal_position - self.base_pos
-        goal_direction_world = goal_relative_world / (torch.norm(goal_relative_world, dim=1, keepdim=True) + 1e-8)
+        goal_direction_world = goal_relative_world
         self.goal_dir_relative[:] = quat_rotate_inverse(self.base_quat, goal_direction_world)
         
         # 4. 计算球到球门的向量（世界坐标系）
@@ -1212,7 +1203,7 @@ class kick_2D(BaseTask):
         # 按照标准AMP格式组装观察
         amp_obs = torch.cat((
             self.dof_pos,           # 23维：关节位置
-            # foot_pos_flat,          # 6维：脚部位置（基座坐标系）
+            foot_pos_flat,          # 6维：脚部位置（基座坐标系）
             self.base_lin_vel,      # 3维：基座线速度（局部坐标系）  
             self.base_ang_vel,      # 3维：基座角速度（局部坐标系）
             self.dof_vel,           # 23维：关节速度
@@ -1315,14 +1306,24 @@ class kick_2D(BaseTask):
             # 从AMP数据获取根状态
             root_pos = AMPLoader.get_root_pos_batch(frames)
             root_orn = AMPLoader.get_root_rot_batch(frames)
-            q_z180 = torch.tensor([0.0, 0.0, 1.0, 0.0], device=root_orn.device).repeat(root_orn.shape[0], 1)
-            root_orn = quat_mul(q_z180, root_orn)  #叠加+180°旋转
+            q_z90 = torch.tensor([0.0, 0.0, 0.7071, -0.7071], device=root_orn.device).repeat(root_orn.shape[0], 1)
+            # q_z180 = torch.tensor([0.0, 0.0, 1.0, 0.0], device=root_orn.device).repeat(root_orn.shape[0], 1)
+            root_orn = quat_mul(q_z90, root_orn)  # 叠加+90°旋转 向右转90度
             root_lin_vel = AMPLoader.get_linear_vel_batch(frames)
             root_ang_vel = AMPLoader.get_angular_vel_batch(frames)
-            position_range=[[-4,4],[-3,3]] 
-            
+            position_range = [[-4, 4], [-3, 3]]
             batch_size = root_pos.shape[0]
-            offsets = np.random.uniform(*zip(*position_range), size=(batch_size, 2))
+            
+            # 使用torch.rand生成随机偏移
+            x_min, x_max = position_range[0]
+            y_min, y_max = position_range[1]
+            
+            # 生成随机偏移：shape为(batch_size, 2)
+            random_x = torch.rand(batch_size, 1, device=self.device) * (x_max - x_min) + x_min
+            random_y = torch.rand(batch_size, 1, device=self.device) * (y_max - y_min) + y_min
+            offsets = torch.cat([random_x, random_y], dim=1)  # [batch_size, 2]
+            
+            # 应用偏移
             root_pos[:, :2] += offsets
             root_pos[:, :2] = root_pos[:, :2] + self.env_origins[env_ids, :2]
 

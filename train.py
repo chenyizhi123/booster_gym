@@ -156,9 +156,10 @@ def create_runner(env, cfg, use_amp, log_dir):
     # 准备训练配置
     train_cfg = {
         'runner': cfg.get('runner', {}),
-        'algorithm': cfg.get('algorithm', {}),
+        'amp_algorithm': cfg.get('amp_algorithm', {}),
         'policy': cfg.get('policy', {}),
-        'device': device
+        'device': device,
+        'env': cfg.get('env', {})
     }
     
     if use_amp:
