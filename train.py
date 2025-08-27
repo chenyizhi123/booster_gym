@@ -152,7 +152,6 @@ def create_env(cfg):
 def create_runner(env, cfg, use_amp, log_dir):
     """创建训练运行器"""
     device = cfg.get('basic', {}).get('rl_device', 'cuda:0')
-    
     # 准备训练配置
     train_cfg = {
         'runner': cfg.get('runner', {}),
@@ -165,15 +164,10 @@ def create_runner(env, cfg, use_amp, log_dir):
     if use_amp:
         print("正在初始化AMP训练运行器...")
         
-        # 检查AMP配置
-        if not train_cfg['runner'].get('amp_motion_files'):
-            print("⚠️  警告: 未指定专家动作数据文件")
-            print("   如果没有专家数据，AMP将无法正常工作")
-        
         runner = AMPOnPolicyRunner(
             env=env,
             train_cfg=train_cfg,
-            log_dir=log_dir,
+            log_dir=log_dir,  
             device=device
         )
         print("✓ AMP训练运行器创建成功")
