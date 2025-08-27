@@ -289,12 +289,12 @@ randomization:
 
 rewards:
   scales:
-    survival: 2.0
+    survival: 5.0
     tracking_lin_vel_x: 0
     tracking_lin_vel_y: 0
     tracking_ang_vel: 0
-    base_height: -2.0
-    orientation: -10.0
+    base_height: -0.5
+    orientation: -6.0
     torques: -1.e-4
     torque_tiredness: -5.e-3
     power: -1.e-3
@@ -328,9 +328,9 @@ rewards:
       # ========== 现有的足球任务奖励 (保持不变) ==========
     ball_goal_scoring: 100.0          # 进球奖励 - 最高优先级
     ball_contact_timing: 10.0         # 球接触时机奖励
-  zone_shooting_no_goal: -10.0
-  zone_shooting_correct: 30.0
-  zone_shooting_wrong: 20.0
+    # 🎯 新增建议：简洁有效的足球奖励
+    ball_kick_power: 5.0              # 踢球力度奖励
+    balance_after_kick: 3.0           # 踢球后平衡奖励
   max_speed: 15.0
   facing_ball_reward_weight: 1.5 # weight of the facing ball reward
   approach_sigma: 1

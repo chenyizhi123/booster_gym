@@ -286,7 +286,7 @@ class kick_2D(BaseTask):
         self.time_out_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.extras = {}
         self.extras["rew_terms"] = {}
-
+        
         # get gym state tensors
         actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
@@ -485,6 +485,8 @@ class kick_2D(BaseTask):
             self.reward_names.append(name)
             name = "_reward_" + name
             self.reward_functions.append(getattr(self, name))
+        
+
 
     def reset(self):
         """Reset all robots"""
@@ -750,6 +752,24 @@ class kick_2D(BaseTask):
         else:
             terminal_amp_states = torch.empty(0, self.get_amp_observations_size(), device=self.device)
         
+        # Collect step-level reward information for TensorBoard logging
+        # 🔧 每个step都记录当前的平均reward，无论智能体是否存活
+        self.extras["episode"] = {}
+        for reward_name in self.extras["rew_terms"].keys():
+            # 计算当前step所有环境的reward平均值
+            current_step_reward = self.extras["rew_terms"][reward_name]
+            avg_reward = torch.mean(current_step_reward).item()
+            self.extras["episode"][reward_name] = avg_reward
+        
+        # 添加总reward
+        total_reward = torch.mean(self.rew_buf).item()
+        self.extras["episode"]["total"] = total_reward
+        
+        # 📊 这种方式的优势：
+        # 1. 每个step都有数据点，TensorBoard显示连续曲线
+        # 2. 反映当前训练状态，不需要等episode结束
+        # 3. 能实时观察reward变化趋势
+        
         self._reset_idx(env_ids)
         self._teleport_robot()
         # self._resample_commands()  # 注释掉：让机器人完全自主移动，不接收外部速度指令
@@ -878,7 +898,8 @@ class kick_2D(BaseTask):
             name = self.reward_names[i]
             rew = self.reward_functions[i]() * self.reward_scales[name]
             self.rew_buf += rew
-            self.extras["rew_terms"][name] = rew
+            self.extras["rew_terms"][name] = rew  # Current step reward for all envs
+        
         if self.cfg["rewards"]["only_positive_rewards"]:
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.0)
 
@@ -1184,7 +1205,34 @@ class kick_2D(BaseTask):
         speed_factor = torch.clamp(ball_speed[valid_mask] / self.cfg["rewards"].get("max_speed", 5.0), max=1.0)  
         reward[valid_mask] = direction_reward * speed_factor
         return reward
-    
+
+
+    def _reward_ball_kick_power(self):
+        """踢球力度奖励 - 接触球时的球速度"""
+        ball_speed = torch.norm(self.ball_velocity, dim=1)
+        # 只有在接触球时才给奖励
+        contact_mask = self.has_ball_contact[:, 0] > 0.5
+        reward = torch.zeros_like(ball_speed)
+        reward[contact_mask] = torch.clamp(ball_speed[contact_mask] / 5.0, max=1.0)
+        return reward
+
+    def _reward_balance_after_kick(self):
+        """踢球后平衡奖励 - 防止踢球后摔倒"""
+        # 检查是否刚踢过球（球有速度且离得不远）
+        ball_speed = torch.norm(self.ball_velocity, dim=1)
+        ball_distance = torch.norm(self.ball_local_position, dim=1)
+        
+        just_kicked = (ball_speed > 1.0) & (ball_distance < 1.0)
+        
+        # 计算平衡度：基于身体角速度和倾斜角度
+        balance_score = 1.0 - torch.norm(self.base_ang_vel, dim=1) / 5.0
+        balance_score = torch.clamp(balance_score, 0.0, 1.0)
+        
+        reward = torch.zeros_like(balance_score)
+        reward[just_kicked] = balance_score[just_kicked]
+        return reward
+
+
     # ========== AMP 相关方法 ==========
     def get_amp_observations(self):
         """
