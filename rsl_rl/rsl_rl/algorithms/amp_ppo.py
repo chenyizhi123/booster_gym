@@ -58,6 +58,7 @@ class AMPPPO:
                  device='cpu',
                  amp_replay_buffer_size=100000,
                  min_std=None,
+                 max_std=2.0,
                  ):
 
         self.device = device
@@ -66,6 +67,7 @@ class AMPPPO:
         self.schedule = schedule
         self.learning_rate = learning_rate
         self.min_std = min_std
+        self.max_std = max_std
 
         # Discriminator components
         self.discriminator = discriminator
@@ -248,8 +250,12 @@ class AMPPPO:
                 nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
-                if not self.actor_critic.fixed_std and self.min_std is not None:
-                    self.actor_critic.std.data = self.actor_critic.std.data.clamp(min=self.min_std)
+                # 🎯 约束std的范围，防止过小或过大
+                if not self.actor_critic.fixed_std:
+                    min_val = self.min_std if self.min_std is not None else None
+                    max_val = self.max_std if self.max_std is not None else None
+                    if min_val is not None or max_val is not None:
+                        self.actor_critic.std.data = self.actor_critic.std.data.clamp(min=min_val, max=max_val)
 
                 if self.amp_normalizer is not None:
                     self.amp_normalizer.update(policy_state.cpu().numpy())

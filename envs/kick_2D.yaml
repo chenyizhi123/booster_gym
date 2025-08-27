@@ -33,7 +33,7 @@ runner:
   amp_reward_coef: 2.0                    # AMP奖励系数
   amp_discr_hidden_dims: [1024, 512]      # 判别器隐藏层维度
   amp_task_reward_lerp: 0.3               # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
-  min_normalized_std: [0.1]                 # 最小标准差（防止数值不稳定）
+  min_normalized_std: [0.05]                 # 最小标准差（防止数值不稳定）
 
 viewer:
   pos: [3., -3., 2.]  # [m]
