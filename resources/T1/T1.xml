@@ -45,6 +45,7 @@
   </asset>
 
   <worldbody>
+    <geom name="ground" type="plane" pos="0 0 0" size="10 10 0.1" rgba="0.8 0.8 0.8 1" contype="1" conaffinity="1"/>
     <body name="Trunk" pos="0 0 1.68">
     <geom class="visual" material="gray" mesh="Trunk"/>
     <geom size="0.09 0.09" pos="0.055 0.022 0.1" type="capsule" quat="0.997189 -0.074930 0 0" class="collision" name="torso_left"/>

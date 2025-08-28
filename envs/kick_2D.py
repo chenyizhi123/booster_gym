@@ -507,14 +507,27 @@ class kick_2D(BaseTask):
         # ==========================
         
         # 根据配置决定使用普通初始化还是AMP初始化
-        if (self.cfg.get('env', {}).get('reference_state_initialization', False) and 
-            self.amp_loader is not None):
-            # 使用AMP参考状态初始化
-            frames = self.amp_loader.get_full_frame_batch(len(env_ids))
-            self._reset_dofs_amp(env_ids, frames)
-            self._reset_root_states_amp(env_ids, frames)
+        if self.amp_loader is not None:
+            # 将env_ids转换为张量便于PyTorch操作
+            # 假设已有device属性
+            total = len(env_ids)
+            
+            # 生成0-1随机数，通过阈值0.8划分80%/20%
+            rand_mask = torch.rand(total, device=self.device) <self.cfg["other"]["amp_propotion"]
+            amp_env_ids = env_ids[rand_mask].tolist()
+            normal_env_ids = env_ids[~rand_mask].tolist()
+            # 对选中的环境使用AMP初始化
+            if amp_env_ids:
+                frames = self.amp_loader.get_full_frame_batch(len(amp_env_ids))
+                self._reset_dofs_amp(amp_env_ids, frames)
+                self._reset_root_states_amp(amp_env_ids, frames)
+            
+            # 对剩余环境使用普通初始化
+            if normal_env_ids:
+                self._reset_dofs(normal_env_ids)
+                self._reset_root_states(normal_env_ids)
         else:
-            # 使用普通随机初始化
+            # 如果没有amp_loader，全部使用普通初始化
             self._reset_dofs(env_ids)
             self._reset_root_states(env_ids)
 
@@ -1189,10 +1202,10 @@ class kick_2D(BaseTask):
         ball_velocity = self.ball_velocity
         ball_speed = torch.norm(ball_velocity, dim=1)
         # 球到目标点的方向向量
-        ball_to_target = self.active_target_points - self.ball_position
+        ball_to_target = self.goal_position - self.ball_position
         target_distance = torch.norm(ball_to_target, dim=1)
         # 避免除零，只对有速度和距离的情况计算
-        valid_mask = (ball_speed > 0.01) & (target_distance > 0.01)
+        valid_mask = (ball_speed > 0.001) & (target_distance > 0.001)
         reward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         if not valid_mask.any():
             return reward
@@ -1204,7 +1217,7 @@ class kick_2D(BaseTask):
         # 只有方向一致时(cos > 0)才给奖励，并根据一致程度调节奖励大小
         direction_reward = torch.clamp(cos_similarity, min=0.0)
         # 速度调节：速度越快，奖励越大（鼓励有力射门）
-        speed_factor = torch.clamp(ball_speed[valid_mask] / self.cfg["rewards"].get("max_speed", 5.0), max=1.0)  
+        speed_factor = torch.clamp(ball_speed[valid_mask] / self.cfg["rewards"].get("max_speed", 20.0), max=1.0)  
         reward[valid_mask] = direction_reward * speed_factor
         return reward
 
