@@ -2,7 +2,7 @@ basic:
   checkpoint: null # set to -1 to load last saved model
   headless: false
   max_iterations: 30000 # set the maximum number of learning iterations to train for
-  sim_device: "cuda:0"  # device for physics simulation
+  sim_device: "cuda:0" # device for physics simulation
   rl_device: "cuda:0" # device for the RL algorithm
   seed: 42 # seed - set to -1 to choose random seed
   description: ""
@@ -32,7 +32,7 @@ runner:
   amp_num_preload_transitions: 2000       # 预加载的专家转换数量
   amp_reward_coef: 2.0                    # AMP奖励系数
   amp_discr_hidden_dims: [1024, 512]      # 判别器隐藏层维度
-  amp_task_reward_lerp: 0.3               # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
+  amp_task_reward_lerp: 0.8              # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
   min_normalized_std: [0.05]                 # 最小标准差（防止数值不稳定）
 
 viewer:
@@ -128,8 +128,8 @@ init_state:
   default_joint_angles: {"Hip_Pitch": -0.2, "Knee_Pitch": 0.4, "Ankle_Pitch": -0.25, "default": 0.} # target angles when action = 0.0
 
 control:
-  stiffness: {"Hip": 200., "Knee": 200., "Ankle": 50.,"Head": 20.,"Shoulder":20,"Elbow":20,"Waist":20} # [N*m/rad]
-  damping: {"Hip": 5., "Knee": 5., "Ankle": 1., "Head": 1.,"Shoulder":0.5,"Elbow": 0.5,"Waist": 0.5} # [N*m*s/rad]
+  stiffness: {"Hip": 200., "Knee": 200., "Ankle": 50.,"Head": 20.,"Shoulder":20,"Elbow":20,"Waist":48} # [N*m/rad]
+  damping: {"Hip": 5., "Knee": 5., "Ankle": 1., "Head": 1.,"Shoulder":0.5,"Elbow": 0.5,"Waist": 1.} # [N*m*s/rad]
   action_scale: 1.
   decimation: 10
 terrain:
@@ -289,7 +289,7 @@ randomization:
 
 rewards:
   scales:
-    survival: 5.0
+    survival: 15.0
     tracking_lin_vel_x: 0
     tracking_lin_vel_y: 0
     tracking_ang_vel: 0
@@ -312,8 +312,8 @@ rewards:
     left_foot_roll: -0.8         # 🔥 支撑脚必须水平
     left_foot_vel_z: 0           # 支撑脚可以微调高度
     # === 右脚（踢球脚）- 适度控制 ===  
-    right_foot_slip: -0.3        # 踢球脚轻度防滑
-    right_foot_roll: -0.2        # 踢球脚适度水平约束
+    right_foot_slip: -1.0        # 踢球脚轻度防滑
+    right_foot_roll: -0.06        # 踢球脚适度水平约束
     right_foot_vel_z: 0          # 踢球脚需要垂直运动自由度
     feet_yaw_diff: -0.5
     feet_yaw_mean: -0.5
@@ -327,10 +327,10 @@ rewards:
     post_kick_stability: 0.0
       # ========== 现有的足球任务奖励 (保持不变) ==========
     ball_goal_scoring: 100.0          # 进球奖励 - 最高优先级
-    ball_contact_timing: 10.0         # 球接触时机奖励
+    ball_contact_timing: 30.0         # 球接触时机奖励
     # 🎯 新增建议：简洁有效的足球奖励
-    ball_kick_power: 5.0              # 踢球力度奖励
-    balance_after_kick: 3.0           # 踢球后平衡奖励
+    ball_kick_power: 10.0              # 踢球力度奖励
+    balance_after_kick: 10.0           # 踢球后平衡奖励
   max_speed: 15.0
   facing_ball_reward_weight: 1.5 # weight of the facing ball reward
   approach_sigma: 1

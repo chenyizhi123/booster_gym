@@ -15,7 +15,7 @@ import yaml
 import argparse
 import numpy as np
 import torch
-
+from datetime import datetime
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -219,7 +219,8 @@ def main():
     if args.log_dir:
         log_dir = args.log_dir
     else:
-        log_dir = f"logs/{args.task}_{'amp' if use_amp else 'ppo'}"
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')  # 添加时间戳
+        log_dir = f"logs/{args.task}_{'amp' if use_amp else 'ppo'}_{timestamp}"
     os.makedirs(log_dir, exist_ok=True)
     
     # 保存配置到日志目录

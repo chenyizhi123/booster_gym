@@ -252,8 +252,8 @@ class AMPPPO:
 
                 # 🎯 约束std的范围，防止过小或过大
                 if not self.actor_critic.fixed_std:
-                    min_val = self.min_std if self.min_std is not None else None
-                    max_val = self.max_std if self.max_std is not None else None
+                    min_val = torch.tensor(self.min_std, device=self.device) if self.min_std is not None else None
+                    max_val = torch.tensor(self.max_std, device=self.device) if self.max_std is not None else None
                     if min_val is not None or max_val is not None:
                         self.actor_critic.std.data = self.actor_critic.std.data.clamp(min=min_val, max=max_val)
 
