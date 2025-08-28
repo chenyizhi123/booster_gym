@@ -485,7 +485,8 @@ class kick_2D(BaseTask):
             self.reward_names.append(name)
             name = "_reward_" + name
             self.reward_functions.append(getattr(self, name))
-        
+        self.episode_sums = {name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+                             for name in self.reward_scales.keys()}
 
 
     def reset(self):
@@ -525,6 +526,12 @@ class kick_2D(BaseTask):
         self.cmd_resample_time[env_ids] = 0
 
         self.delay_steps[env_ids] = torch.randint(0, self.cfg["control"]["decimation"], (len(env_ids),), device=self.device)
+        
+        self.extras["episode"] = {}
+        for key in self.episode_sums.keys():
+            self.extras["episode"]['rew_' + key] = torch.mean(self.episode_sums[key][env_ids]) / self.cfg['rewards']['episode_length_s']
+            self.episode_sums[key][env_ids] = 0.
+        
         self.extras["time_outs"] = self.time_out_buf
         
         # # 随机化射门指令
@@ -754,7 +761,8 @@ class kick_2D(BaseTask):
         
         # Collect step-level reward information for TensorBoard logging
         # 🔧 每个step都记录当前的平均reward，无论智能体是否存活
-        self.extras["episode"] = {}
+
+
         for reward_name in self.extras["rew_terms"].keys():
             # 计算当前step所有环境的reward平均值
             current_step_reward = self.extras["rew_terms"][reward_name]
@@ -764,11 +772,6 @@ class kick_2D(BaseTask):
         # 添加总reward
         total_reward = torch.mean(self.rew_buf).item()
         self.extras["episode"]["total"] = total_reward
-        
-        # 📊 这种方式的优势：
-        # 1. 每个step都有数据点，TensorBoard显示连续曲线
-        # 2. 反映当前训练状态，不需要等episode结束
-        # 3. 能实时观察reward变化趋势
         
         self._reset_idx(env_ids)
         self._teleport_robot()
@@ -898,8 +901,7 @@ class kick_2D(BaseTask):
             name = self.reward_names[i]
             rew = self.reward_functions[i]() * self.reward_scales[name]
             self.rew_buf += rew
-            self.extras["rew_terms"][name] = rew  # Current step reward for all envs
-        
+            self.episode_sums[name] += rew # Current step reward for all envs
         if self.cfg["rewards"]["only_positive_rewards"]:
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.0)
 
