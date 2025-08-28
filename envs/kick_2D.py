@@ -951,7 +951,7 @@ class kick_2D(BaseTask):
     # ------------ reward functions----------------
     def _reward_survival(self):
         # Reward survival
-        return torch.ones(self.num_envs, dtype=torch.float, device=self.device)
+        return (~self.reset_buf).float() 
 
     def _reward_tracking_lin_vel_x(self):
         # Tracking of linear velocity commands (x axes)

@@ -3,7 +3,7 @@ basic:
   headless: false
   max_iterations: 30000 # set the maximum number of learning iterations to train for
   sim_device: "cuda:0" # device for physics simulation
-  rl_device: "cuda:0" # device for the RL algorithm
+  rl_device: "cuda:0logs/kick_2D_amp_20250828_125434/model_1000.pt" # device for the RL algorithm
   seed: 42 # seed - set to -1 to choose random seed
   description: ""
 
@@ -30,9 +30,9 @@ runner:
   
   # AMP特定参数（仅在启用AMP时使用）
   amp_num_preload_transitions: 2000       # 预加载的专家转换数量
-  amp_reward_coef: 2.0                    # AMP奖励系数
+  amp_reward_coef: 3.0                    # AMP奖励系数
   amp_discr_hidden_dims: [1024, 512]      # 判别器隐藏层维度
-  amp_task_reward_lerp: 0.8              # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
+  amp_task_reward_lerp: 0.7              # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
   min_normalized_std: [0.05]                 # 最小标准差（防止数值不稳定）
 
 viewer:
@@ -44,20 +44,7 @@ viewer:
 
 algorithm:
   # class_name: AMPPO                        # 算法类型 - 设置为AMPPPO启用AMP
-  learning_rate: 1.e-4                   # 学习率（AMP通常需要稍低的学习率）
-  gamma: 0.995                           # 折扣因子
-  lam: 0.95                              # GAE lambda
-  bound_coef: 1.0
-  entropy_coef: -0.01                    # 熵奖励系数  
-  symmetric_coef: 10.
-  num_learning_epochs: 5                 # 学习epoch数量
-  num_mini_batches: 4                    # Mini batch数量
-  max_grad_norm: 1.0                     # 梯度裁剪
-  use_clipped_value_loss: true           # 使用裁剪的价值损失
-  schedule: "adaptive"                   # 学习率调度策略
-  desired_kl: 0.01                      # 期望的KL散度
-  clip_param: 0.2                       # PPO clip参数
-  value_loss_coef: 1.0                  # 价值函数损失系数
+
   
   # AMP特定的replay buffer（仅在启用AMP时使用）
   amp_replay_buffer_size: 100000         # AMP重放缓冲区大小
@@ -289,7 +276,7 @@ randomization:
 
 rewards:
   scales:
-    survival: 15.0
+    survival: 6.0
     tracking_lin_vel_x: 0
     tracking_lin_vel_y: 0
     tracking_ang_vel: 0
@@ -309,11 +296,11 @@ rewards:
     torque_limits: -0.
     collision: -1.0
     left_foot_slip: -1.0         # 🔥 支撑脚绝对不能滑
-    left_foot_roll: -0.8         # 🔥 支撑脚必须水平
+    left_foot_roll: -1.0         # 🔥 支撑脚必须水平
     left_foot_vel_z: 0           # 支撑脚可以微调高度
     # === 右脚（踢球脚）- 适度控制 ===  
-    right_foot_slip: -1.0        # 踢球脚轻度防滑
-    right_foot_roll: -0.06        # 踢球脚适度水平约束
+    right_foot_slip: -0.8        # 踢球脚轻度防滑
+    right_foot_roll: -0.05        # 踢球脚适度水平约束
     right_foot_vel_z: 0          # 踢球脚需要垂直运动自由度
     feet_yaw_diff: -0.5
     feet_yaw_mean: -0.5
@@ -329,8 +316,8 @@ rewards:
     ball_goal_scoring: 100.0          # 进球奖励 - 最高优先级
     ball_contact_timing: 30.0         # 球接触时机奖励
     # 🎯 新增建议：简洁有效的足球奖励
-    ball_kick_power: 10.0              # 踢球力度奖励
-    balance_after_kick: 10.0           # 踢球后平衡奖励
+    ball_kick_power: 5.0              # 踢球力度奖励
+    balance_after_kick: 6.0           # 踢球后平衡奖励
   max_speed: 15.0
   facing_ball_reward_weight: 1.5 # weight of the facing ball reward
   approach_sigma: 1
@@ -382,7 +369,16 @@ evaluation:
 # 4. 确保有专家数据文件 data/expert_kick_data.yaml
 amp_algorithm:
   # class_name: AMPPO                        # 算法类型 - 设置为AMPPPO启用AMP
-  entropy_coef : 0.01
   amp_replay_buffer_size : 1000000
   num_learning_epochs : 5
-  num_mini_batches : 4
+  learning_rate: 5.e-4                   # 学习率（AMP通常需要稍低的学习率）
+  gamma: 0.995                           # 折扣因子
+  lam: 0.95                              # GAE lambda
+  entropy_coef: -0.01                    # 熵奖励系数  
+  num_mini_batches: 4                    # Mini batch数量
+  max_grad_norm: 1.0                     # 梯度裁剪
+  use_clipped_value_loss: true           # 使用裁剪的价值损失
+  schedule: "adaptive"                   # 学习率调度策略
+  desired_kl: 0.01                      # 期望的KL散度
+  clip_param: 0.2                       # PPO clip参数
+  value_loss_coef: 1.0                  # 价值函数损失系数
