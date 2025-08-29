@@ -32,8 +32,8 @@ runner:
   amp_num_preload_transitions: 2000       # 预加载的专家转换数量
   amp_reward_coef: 3.0                    # AMP奖励系数
   amp_discr_hidden_dims: [1024, 512]      # 判别器隐藏层维度
-  amp_task_reward_lerp: 0.7              # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
-  min_normalized_std: [0.05]                 # 最小标准差（防止数值不稳定）
+  amp_task_reward_lerp: 0.8             # 任务奖励与AMP奖励的插值系数 (0.3表示30%任务奖励 + 70%AMP奖励)
+  min_normalized_std: [0.005]               # 🔥 大幅降低最小标准差，允许更小的探索噪声
 
 viewer:
   pos: [3., -3., 2.]  # [m]
@@ -276,7 +276,8 @@ randomization:
 
 rewards:
   scales:
-    survival: 6.0
+    penalize_height_diet: -200.0
+    survival: 10.0
     tracking_lin_vel_x: 0
     tracking_lin_vel_y: 0
     tracking_ang_vel: 0
@@ -327,14 +328,14 @@ rewards:
   success_distance_threshold: 0.2 # [m] distance to the ball to count as success
   success_angle_threshold: 10
   alignment_max_distance: 0.1
-  episode_length_s: 20.0
-  terminate_height: 0.35
-  terminate_vel: 100.
+  episode_length_s: 10.0
+  terminate_height: 0.25
+  terminate_vel: 80.
   terminate_contacts_on: []
   penalize_contacts_on: ["Trunk", "H1", "H2", "AL", "AR", "Waist", "Hip", "Shank", "Ankle"]
   only_positive_rewards: true # if true negative total rewards are clipped at zero (avoids early termination problems)
   tracking_sigma: 0.25 # tracking reward = exp(-error^2/sigma)
-  base_height_target: 0.68
+  base_height_target: 0.7
   soft_dof_pos_limit: 1. # percentage of urdf limits, values above this limit are penalized
   soft_dof_vel_limit: 1.
   soft_torque_limit: 1.
@@ -342,6 +343,7 @@ rewards:
   feet_distance_ref: 0.2
 other:
   max_yaw_deviation_deg: 15.0
+  amp_propotion: 0.7
 
 # ===== AMP相关配置 =====
 # AMP专家数据处理参数
@@ -375,7 +377,7 @@ amp_algorithm:
   learning_rate: 5.e-4                   # 学习率（AMP通常需要稍低的学习率）
   gamma: 0.995                           # 折扣因子
   lam: 0.95                              # GAE lambda
-  entropy_coef: -0.01                    # 熵奖励系数  
+  entropy_coef: 0.01                     # 🔥 正熵系数，鼓励探索
   num_mini_batches: 4                    # Mini batch数量
   max_grad_norm: 1.0                     # 梯度裁剪
   use_clipped_value_loss: true           # 使用裁剪的价值损失
@@ -383,5 +385,6 @@ amp_algorithm:
   desired_kl: 0.01                      # 期望的KL散度
   clip_param: 0.2                       # PPO clip参数
   value_loss_coef: 1.0                  # 价值函数损失系数
-other:
-  amp_propotion: 0.8
+  max_std: 1.0                          # 🔥 设置最大标准差，防止探索过度
+
+  

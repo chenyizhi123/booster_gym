@@ -282,6 +282,7 @@ class kick_2D(BaseTask):
         self.privileged_obs_buf = torch.zeros(self.num_envs, self.num_privileged_obs, dtype=torch.float, device=self.device)
         self.rew_buf = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.reset_buf = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
+        self.terminate_height_buf = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
         self.episode_length_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
         self.time_out_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.extras = {}
@@ -514,16 +515,16 @@ class kick_2D(BaseTask):
             
             # 生成0-1随机数，通过阈值0.8划分80%/20%
             rand_mask = torch.rand(total, device=self.device) <self.cfg["other"]["amp_propotion"]
-            amp_env_ids = env_ids[rand_mask].tolist()
-            normal_env_ids = env_ids[~rand_mask].tolist()
+            amp_env_ids = env_ids[rand_mask]
+            normal_env_ids = env_ids[~rand_mask]
             # 对选中的环境使用AMP初始化
-            if amp_env_ids:
+            if amp_env_ids.numel() > 0:
                 frames = self.amp_loader.get_full_frame_batch(len(amp_env_ids))
                 self._reset_dofs_amp(amp_env_ids, frames)
                 self._reset_root_states_amp(amp_env_ids, frames)
             
             # 对剩余环境使用普通初始化
-            if normal_env_ids:
+            if normal_env_ids.numel()>0:
                 self._reset_dofs(normal_env_ids)
                 self._reset_root_states(normal_env_ids)
         else:
@@ -784,7 +785,7 @@ class kick_2D(BaseTask):
         
         # 添加总reward
         total_reward = torch.mean(self.rew_buf).item()
-        self.extras["episode"]["total"] = total_reward
+        # self.extras["episode"]["total"] = total_reward
         
         self._reset_idx(env_ids)
         self._teleport_robot()
@@ -873,7 +874,7 @@ class kick_2D(BaseTask):
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1.0, dim=1)
         self.reset_buf |= self.root_states[self.robot_indices, 7:13].square().sum(dim=-1) > self.cfg["rewards"]["terminate_vel"]
         self.reset_buf |= self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
-
+        self.terminate_height_buf = self.base_pos[:, 2] - self.terrain.terrain_heights(self.base_pos) < self.cfg["rewards"]["terminate_height"]
         # ========================
         
         # ===== 球出界终止条件 =====
@@ -965,7 +966,8 @@ class kick_2D(BaseTask):
     def _reward_survival(self):
         # Reward survival
         return (~self.reset_buf).float() 
-
+    def __reward_penalize_height_die(self):
+        return self.terminate_height_buf.float() 
     def _reward_tracking_lin_vel_x(self):
         # Tracking of linear velocity commands (x axes)
         return torch.exp(-torch.square(self.commands[:, 0] - self.filtered_lin_vel[:, 0]) / self.cfg["rewards"]["tracking_sigma"])

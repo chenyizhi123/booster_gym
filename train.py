@@ -219,7 +219,7 @@ def main():
     if args.log_dir:
         log_dir = args.log_dir
     else:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')  # 添加时间戳
+        timestamp = datetime.now().strftime('%Y%m%d_%H_%M_%S')  # 添加时间戳
         log_dir = f"logs/{args.task}_{'amp' if use_amp else 'ppo'}_{timestamp}"
     os.makedirs(log_dir, exist_ok=True)
     
