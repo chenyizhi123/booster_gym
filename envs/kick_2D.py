@@ -966,7 +966,7 @@ class kick_2D(BaseTask):
     def _reward_survival(self):
         # Reward survival
         return (~self.reset_buf).float() 
-    def __reward_penalize_height_die(self):
+    def _reward_penalize_height_die(self):
         return self.terminate_height_buf.float() 
     def _reward_tracking_lin_vel_x(self):
         # Tracking of linear velocity commands (x axes)
